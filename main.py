@@ -209,22 +209,56 @@ async def validar_cliente(dni: str, patente: str):
     for char in ["✅", "⏳", "❌", "⚠️"]:
         descripcion = descripcion.replace(char, "")
     descripcion = descripcion.strip()
+    
+    # 5. Parsear toda la información de la póliza usando helper
+    poliza_info = parse_poliza_block(bloque_match)
 
+    # 6. Obtener Record ID de la Póliza para pre-llenado correcto en Airtable
+    # El formulario requiere el ID (rec...) para vincular, no el número de texto.
+    record_id_poliza = None
+    ids_polizas = cliente.get("POLIZAS", [])
+    
+    if ids_polizas:
+        try:
+            table_polizas = get_table("POLIZAS")
+            if table_polizas:
+                # Iteramos las pólizas del cliente para encontrar la que coincide con la patente
+                # Esto es más seguro que buscar en toda la tabla
+                for pid in ids_polizas:
+                    try:
+                        pol_record = table_polizas.get(pid)
+                        fields_p = pol_record["fields"]
+                        # Buscamos patente en campos clave o etiqueta
+                        # Usamos representación string de campos para asegurar match
+                        str_fields = str(fields_p.values()).upper()
+                        
+                        if patente_limpia in str_fields:
+                            record_id_poliza = pid
+                            break
+                    except:
+                        continue
+        except Exception as e:
+            print(f"Error fetching poliza details: {e}")
+
+    # 7. Retornar datos completos
     return {
         "valid": True,
-        "message": "Validación exitosa",
         "cliente": {
-            "nombres": cliente.get("NOMBRES"),
-            "apellido": cliente.get("APELLIDO"),
-            "fullname": nombre_completo
+            "nombres": cliente.get("NOMBRES", ""),
+            "apellido": cliente.get("APELLIDO", ""),
         },
         "poliza": {
-            "id": "no_disponible_desde_cliente",
-            "numero": "0000",
-            "patente": patente_upper,
-            "descripcion": descripcion
+            "record_id": record_id_poliza, # ID para Linked Record
+            "numero": poliza_info["numero"],
+            "patente": poliza_info["patente"],
+            "tipo_vehiculo": poliza_info["tipo_vehiculo"],
+            "categoria": poliza_info["categoria"],
+            "vida": poliza_info["vida"],
+            "auxilio": poliza_info["auxilio"],
+            "estado": poliza_info["estado"],
+            "descripcion_completa": poliza_info["descripcion_completa"]
         }
-    }
+
 
 @app.get("/api/testimonios")
 async def get_testimonios():
@@ -487,119 +521,4 @@ class SiniestroValidationRequest(BaseModel):
     dni: str
     patente: str
 
-@app.get("/api/validate-siniestro")
-async def validate_siniestro(dni: str, patente: str):
-    """
-    Valida DNI + Patente para reportar siniestro.
-    Retorna información completa de la póliza parseada.
-    """
-    table_clientes = get_table("CLIENTES")
-    
-    if not table_clientes:
-        raise HTTPException(status_code=500, detail="Airtable config error")
-        
-    dni_limpio = "".join(filter(str.isdigit, str(dni)))
-    patente_limpia = patente.upper().strip().replace(" ", "")
-    
-    if not dni_limpio or not patente_limpia:
-        return {"valid": False, "message": "Datos incompletos"}
-
-    # 1. Buscar Cliente por DNI
-    formula = f"({{DNI}} & \"\") = \"{dni_limpio}\""
-    try:
-        records = table_clientes.all(formula=formula, max_records=1)
-    except Exception as e:
-        print(f"Error buscando cliente: {e}")
-        return {"valid": False, "message": "Error validando cliente"}
-
-    if not records:
-        return {"valid": False, "message": "Cliente no encontrado"}
-
-    cliente = records[0]["fields"]
-    nombre_completo = cliente.get("NOMBRE COMPLETO") or cliente.get("NOMBRES") or "Cliente"
-    
-    # 2. Obtener compilación de pólizas (Lookup)
-    compilacion = cliente.get("ETIQUETA_POLIZA Compilación (de POLIZAS)", [])
-    
-    # Manejar si es string o lista
-    if isinstance(compilacion, list):
-        texto_polizas = " | ".join([str(x) for x in compilacion])
-    else:
-        texto_polizas = str(compilacion or "")
-
-    # 3. Verificar si la patente está en el texto de pólizas
-    if patente_limpia not in texto_polizas.upper():
-        return {
-            "valid": False,
-            "message": f"No encontramos el vehículo patente {patente_limpia} asociado a tu DNI."
-        }
-
-    # 4. Extraer el bloque completo de la póliza que corresponde a esta patente
-    # El formato puede tener múltiples pólizas separadas por pipes.
-    # Estrategia: Dividir por '|' y agrupar. Un nuevo grupo empieza cuando detectamos un Estado (✅, ❌, ⏳, ⚠️).
-    
-    parts = [p.strip() for p in texto_polizas.split("|")]
-    bloques_detectados = []
-    current_bloque = []
-    
-    emojis_inicio = ["✅", "❌", "⏳", "⚠️"]
-    
-    for part in parts:
-        # Verificar si este fragmento es el inicio de una nueva póliza (tiene emoji de estado)
-        es_inicio = any(e in part for e in emojis_inicio) and ("VENCE" in part or "ANULADA" in part or "BAJA" in part or "ACTIVA" in part)
-        
-        # Caso especial: Si es el primer fragmento, siempre empieza bloque
-        if not current_bloque:
-            current_bloque.append(part)
-        elif es_inicio:
-            # Guardar el bloque anterior y empezar uno nuevo
-            bloques_detectados.append(" | ".join(current_bloque))
-            current_bloque = [part]
-        else:
-            # Continuar agregando al bloque actual
-            current_bloque.append(part)
-            
-    # Agregar el último bloque procesado
-    if current_bloque:
-        bloques_detectados.append(" | ".join(current_bloque))
-        
-    # Buscar cuál de estos bloques contiene la patente
-    bloque_match = None
-    for bloque in bloques_detectados:
-        # Chequeo robusto de patente: que esté la patente y (opcionalmente) el emoji
-        if patente_limpia in bloque.upper():
-            bloque_match = bloque
-            break
-            
-    # Fallback si no se encontró (usar todo el texto, aunque sea arriesgado)
-    if not bloque_match:
-        bloque_match = texto_polizas
-
-    # Verificar estado (ANULADA/BAJA) SOLAMENTE en el bloque coincidente
-    if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
-        return {
-            "valid": False,
-            "message": f"La póliza del vehículo {patente_limpia} figura como ANULADA o DE BAJA."
-        }
-    
-    # 5. Parsear toda la información de la póliza usando helper
-    poliza_info = parse_poliza_block(bloque_match)
-
-    # 6. Retornar datos completos en formato compatible con app.js
-    return {
-        "valid": True,
-        "cliente": {
-            "nombres": cliente.get("NOMBRES", ""),
-            "apellido": cliente.get("APELLIDO", ""),
-        },
-        "poliza": {
-            "numero": poliza_info["numero"],
-            "patente": poliza_info["patente"],
-            "tipo_vehiculo": poliza_info["tipo_vehiculo"],
-            "categoria": poliza_info["categoria"],
-            "vida": poliza_info["vida"],
-            "auxilio": poliza_info["auxilio"],
-            "estado": poliza_info["estado"],
-            "descripcion_completa": poliza_info["descripcion_completa"]
-        }
-    }
+# @app.post("/api/siniestro") -> ENDPOINT REMOVED (Logic moved to Frontend Airtable Param)
