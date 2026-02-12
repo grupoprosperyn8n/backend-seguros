@@ -231,6 +231,36 @@ async def get_testimonios():
         "mensaje": f"Mostrando {len(seleccion)} opiniones"
     }
 
+@app.get("/api/rating")
+async def get_average_rating():
+    """
+    Calcula el promedio de calificaciones visibles.
+    """
+    table_calif = get_table("CALIFICACIONES")
+    if not table_calif:
+        return {"rating": 5.0, "total": 0}
+    
+    # Formula: VISIBLE=TRUE y ESTRELLAS > 0
+    formula = "AND({VISIBLE}=TRUE(), {ESTRELLAS}>0)"
+    try:
+        records = table_calif.all(formula=formula, fields=["ESTRELLAS"])
+    except:
+        return {"rating": 0, "total": 0}
+        
+    if not records:
+        return {"rating": 0, "total": 0}
+        
+    total_stars = sum(r["fields"].get("ESTRELLAS", 0) for r in records)
+    count = len(records)
+    if count == 0: return {"rating": 0, "total": 0}
+    
+    average = round(total_stars / count, 1)
+    
+    return {
+        "rating": average,
+        "total": count
+    }
+
 @app.post("/api/rating")
 async def save_rating(data: RatingRequest):
     """
