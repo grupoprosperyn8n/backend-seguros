@@ -154,8 +154,15 @@ async def get_testimonios():
     # Airtable formula: AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')
     formula = "AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')"
     
-    # Sort por fecha creación descendente
-    records = table_calif.all(formula=formula, sort=["-FECHA DE CREACION"])
+    # Sort por fecha creación descendente (en memoria para evitar error si el campo no existe)
+    try:
+        records = table_calif.all(formula=formula)
+    except Exception as e:
+        print(f"Error fetching testimonios: {e}")
+        return {"testimonios": [], "total": 0, "mensaje": "Error obteniendo datos"}
+    
+    # Sort in memory by createdTime (desc)
+    records.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
     
     if not records:
         return {"testimonios": [], "total": 0, "mensaje": "Sin testimonios disponibles"}
@@ -181,12 +188,12 @@ async def get_testimonios():
             if isinstance(fotos, list) and len(fotos) > 0:
                 foto_url = fotos[0].get("url")
 
-        # Tiempo Relativo (Calculado en Python)
-        fecha_creacion = f.get("FECHA DE CREACION") # ISO String endpoint
+        # Tiempo Relativo (Calculado en Python usando createdTime o campo si existe)
+        fecha_str = f.get("FECHA DE CREACION") or r.get("createdTime")
         texto_tiempo = "Reciente"
-        if fecha_creacion:
+        if fecha_str:
             try:
-                dt = datetime.fromisoformat(fecha_creacion.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(fecha_str.replace('Z', '+00:00'))
                 delta = datetime.now(dt.tzinfo) - dt
                 days = delta.days
                 if days == 0: texto_tiempo = "Hoy"
