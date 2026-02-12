@@ -47,6 +47,80 @@ class RatingRequest(BaseModel):
     usar_foto: Optional[bool] = False
 
 # ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+def parse_poliza_block(bloque_texto: str) -> dict:
+    """
+    Parsea un bloque de ETIQUETA_POLIZA y extrae toda la información.
+    
+    Ejemplo input:
+    "✅ VENCE 30D | 🚗 AUTO | N° POL: 33333333 | 🏷️ PDL384 | 🅰️ A | ❤️ VIDA: SI | 🔧 AUX"
+    
+    Returns:
+    {
+        "numero": "33333333",
+        "patente": "PDL384",
+        "tipo_vehiculo": "AUTO",
+        "categoria": "A",
+        "vida": True,
+        "auxilio": True,
+        "estado": "VENCE 30D",
+        "descripcion_completa": "..."
+    }
+    """
+    import re
+    
+    info = {
+        "numero": "",
+        "patente": "",
+        "tipo_vehiculo": "",
+        "categoria": "",
+        "vida": False,
+        "auxilio": False,
+        "estado": "",
+        "descripcion_completa": bloque_texto.strip()
+    }
+    
+    # Extraer N° POL
+    match = re.search(r'N°\s*POL:\s*(\d+)', bloque_texto)
+    if match:
+        info["numero"] = match.group(1)
+    
+    # Extraer Patente
+    match = re.search(r'🏷️\s*([A-Z0-9]+)', bloque_texto)
+    if match:
+        info["patente"] = match.group(1)
+    
+    # Extraer Tipo de vehículo (después de emoji de vehículo)
+    match = re.search(r'[🚗🚙🚛🏍️]\s*([A-Z]+)', bloque_texto)
+    if match:
+        info["tipo_vehiculo"] = match.group(1)
+    
+    # Extraer Categoría
+    match = re.search(r'🅰️\s*([A-Z])', bloque_texto)
+    if match:
+        info["categoria"] = match.group(1)
+    
+    # Extraer VIDA
+    info["vida"] = "VIDA: SI" in bloque_texto.upper() or ("❤️" in bloque_texto and "VIDA" in bloque_texto.upper())
+    
+    # Extraer AUXILIO
+    info["auxilio"] = "AUX" in bloque_texto.upper() and "🔧" in bloque_texto
+    
+    # Extraer Estado (primera parte antes del primer |)
+    partes = bloque_texto.split("|")
+    if partes:
+        estado = partes[0].strip()
+        # Limpiar emojis de estado
+        for char in ["✅", "⏳", "❌", "⚠️"]:
+            estado = estado.replace(char, "")
+        info["estado"] = estado.strip()
+    
+    return info
+
+
+# ==============================================================================
 # ENDPOINTS
 # ==============================================================================
 
@@ -458,13 +532,10 @@ async def validate_siniestro(dni: str, patente: str):
             "message": f"La póliza del vehículo {patente_limpia} figura como ANULADA o DE BAJA."
         }
 
-    # 5. Limpieza de descripción (quitar emojis al inicio)
-    descripcion = bloque_match.strip()
-    for char in ["✅", "⏳", "❌", "⚠️"]:
-        descripcion = descripcion.replace(char, "")
-    descripcion = descripcion.strip()
+    # 5. Parsear toda la información de la póliza usando helper
+    poliza_info = parse_poliza_block(bloque_match)
 
-    # 6. Retornar datos en formato compatible con app.js
+    # 6. Retornar datos completos en formato compatible con app.js
     return {
         "valid": True,
         "cliente": {
@@ -472,10 +543,14 @@ async def validate_siniestro(dni: str, patente: str):
             "apellido": cliente.get("APELLIDO", ""),
         },
         "poliza": {
-            "id": "no_disponible_desde_cliente",
-            "visual_id": "",  # No disponible desde CLIENTES
-            "numero": "0000",
-            "descripcion": descripcion
+            "numero": poliza_info["numero"],
+            "patente": poliza_info["patente"],
+            "tipo_vehiculo": poliza_info["tipo_vehiculo"],
+            "categoria": poliza_info["categoria"],
+            "vida": poliza_info["vida"],
+            "auxilio": poliza_info["auxilio"],
+            "estado": poliza_info["estado"],
+            "descripcion_completa": poliza_info["descripcion_completa"]
         }
     }
 
