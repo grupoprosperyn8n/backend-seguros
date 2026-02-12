@@ -396,17 +396,84 @@ async def save_rating(data: RatingRequest):
         print(f"Error creando rating: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/siniestro")
-async def save_siniestro(data: dict = Body(...)):
+class SiniestroValidationRequest(BaseModel):
+    dni: str
+    patente: str
+
+@app.get("/api/validate-siniestro")
+async def validate_siniestro(dni: str, patente: str):
     """
-    Endpoint temporal para Siniestros.
-    Por ahora solo loguea, ya que el manejo de archivos requiere storage externo.
-    Se recomienda mantener N8N para esto o implementar Cloudinary.
+    Valida cliente y póliza para el flujo de Siniestros.
+    Retorna objeto compatible con app.js Siniestros.
     """
-    # TODO: Implementar subida de archivos o conexión a storage.
-    print("Siniestro recibido (Python):", data)
-    return {
-        "status": "success", 
-        "message": "Siniestro recibido (sin archivos procesados aún)",
-        "data": data
-    }
+    table_clientes = get_table("CLIENTES")
+    table_polizas = get_table("POLIZAS")
+    
+    if not table_clientes or not table_polizas:
+        raise HTTPException(status_code=500, detail="Airtable config error")
+        
+    dni_limpio = "".join(filter(str.isdigit, str(dni)))
+    patente_limpia = patente.upper().strip().replace(" ", "")
+    
+    if not dni_limpio or not patente_limpia:
+        return {"valid": False, "message": "Datos incompletos"}
+
+    # 1. Buscar Cliente
+    cliente_data = None
+    cliente_id = None
+    try:
+        c_records = table_clientes.all(formula=f"{{DNI}}={dni_limpio}", max_records=1)
+        if c_records:
+            rec = c_records[0]
+            cliente_id = rec["id"]
+            cliente_data = {
+                "nombres": rec["fields"].get("NOMBRE", ""),
+                "apellido": rec["fields"].get("APELLIDO", ""),
+            }
+    except Exception as e:
+        print(f"Error buscando cliente: {e}")
+        return {"valid": False, "message": "Error validando cliente"}
+
+    # 2. Buscar Póliza (Buscamos por patente exacta, normalizada)
+    poliza_data = None
+    poliza_link_ok = False
+    
+    try:
+        # Nota: Formula asume que PATENTE DEL VEHICULO es texto. 
+        # Si es lookup array, usar SEARCH() o similar. Asumimos texto o formula.
+        p_records = table_polizas.all(formula=f"{{PATENTE DEL VEHICULO}}='{patente_limpia}'", max_records=1)
+        
+        if p_records:
+            rec = p_records[0]
+            # Verificar link con cliente
+            linked_clients = rec["fields"].get("CLIENTE", [])
+            
+            # Si encontramos cliente y póliza, verificamos que coincidan
+            if cliente_id and (cliente_id in linked_clients):
+                poliza_link_ok = True
+                
+            # Datos de Póliza para frontend
+            poliza_data = {
+                "id": rec["id"],
+                "visual_id": rec["fields"].get("ID_GESTION_UNICO", ""),
+                "numero": rec["fields"].get("POLIZA", ""),
+                "descripcion": f"{rec['fields'].get('MARCA VEHICULO','')} {rec['fields'].get('MODELO VEHICULO','')}".strip()
+            }
+    except Exception as e:
+        print(f"Error buscando póliza: {e}")
+        return {"valid": False, "message": "Error buscando póliza"}
+
+    if cliente_data and poliza_data and poliza_link_ok:
+        return {
+            "valid": True,
+            "cliente": cliente_data,
+            "poliza": poliza_data
+        }
+    elif not cliente_data:
+        return {"valid": False, "message": "Cliente no encontrado"}
+    elif not poliza_data:
+        return {"valid": False, "message": "Vehículo no encontrado"}
+    else:
+        return {"valid": False, "message": "El vehículo no corresponde al DNI ingresado"}
+
+# @app.post("/api/siniestro") -> ENDPOINT REMOVED (Logic moved to Frontend Airtable Param)
