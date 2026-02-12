@@ -143,36 +143,68 @@ async def validar_cliente(dni: str, patente: str):
 async def get_testimonios():
     """
     Obtiene testimonios aprobados de la tabla CALIFICACIONES.
-    Replica la lógica de selección inteligente (60% buenos, etc) o simplificada.
+    Lógica de Selección:
+    - Mix: 70% Buenos (>=3 estrellas), 30% Otros (<3 estrellas).
+    - Prioridad: Últimos 3 meses.
+    - Fallback: Si no completa cupo con recientes, usa antiguos.
+    - Total Objetivo: 10 testimonios.
     """
     table_calif = get_table("CALIFICACIONES")
     if not table_calif:
         raise HTTPException(status_code=500, detail="Airtable config missing")
 
     # Fórmula: Visible=True, Autoriza=True, Comentario!=''
-    # Y antigüedad < 6 meses (aprox)
-    # Airtable formula: AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')
+    # Traemos TODO (sin filtro de fecha en API) para poder hacer el fallback
     formula = "AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')"
     
-    # Sort por fecha creación descendente (en memoria para evitar error si el campo no existe)
     try:
         records = table_calif.all(formula=formula)
     except Exception as e:
         print(f"Error fetching testimonios: {e}")
         return {"testimonios": [], "total": 0, "mensaje": "Error obteniendo datos"}
     
-    # Sort in memory by createdTime (desc)
-    records.sort(key=lambda r: r.get("createdTime", ""), reverse=True)
-    
     if not records:
         return {"testimonios": [], "total": 0, "mensaje": "Sin testimonios disponibles"}
 
-    # Formatear
-    formatted = []
+    # Procesar registros y separar por fecha y calificación
+    now = datetime.now().astimezone() # Aware
+    cutoff_90d = datetime.now().timestamp() - (90 * 24 * 60 * 60) # Timestamp comparison logic easier
+    
+    pool_recent_good = []
+    pool_recent_bad = []
+    pool_old_good = []
+    pool_old_bad = []
+
+    formatted_map = {} # ID -> Formatted Dict
+
     for r in records:
         f = r["fields"]
+        stars = f.get("ESTRELLAS", 0)
+        
+        # Parse Date
+        date_str = f.get("FECHA DE CREACION") or r.get("createdTime")
+        is_recent = False
+        
+        # Intentar parsear fecha
+        try:
+            # ISO format from Airtable: 2023-10-25T12:00:00.000Z
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            is_recent = dt.timestamp() >= cutoff_90d
+            
+            # Texto relativo
+            delta = datetime.now(dt.tzinfo) - dt
+            days = delta.days
+            if days == 0: texto_tiempo = "Hoy"
+            elif days == 1: texto_tiempo = "Ayer"
+            elif days < 7: texto_tiempo = f"Hace {days} días"
+            elif days < 30: texto_tiempo = f"Hace {days // 7} semanas"
+            else: texto_tiempo = f"Hace {days // 30} meses"
+        except:
+            texto_tiempo = "Reciente"
+            is_recent = False 
+
+        # Formatear
         nombre = f.get("NOMBRE", "Anónimo")
-        estrellas = f.get("ESTRELLAS", 0)
         
         # Iniciales
         partes = nombre.strip().split()
@@ -181,61 +213,89 @@ async def get_testimonios():
         else:
             iniciales = "?"
 
-        # Foto
         foto_url = None
         if f.get("USAR FOTO") and f.get("FOTO PERFIL"):
             fotos = f.get("FOTO PERFIL")
             if isinstance(fotos, list) and len(fotos) > 0:
                 foto_url = fotos[0].get("url")
 
-        # Tiempo Relativo (Calculado en Python usando createdTime o campo si existe)
-        fecha_str = f.get("FECHA DE CREACION") or r.get("createdTime")
-        texto_tiempo = "Reciente"
-        if fecha_str:
-            try:
-                dt = datetime.fromisoformat(fecha_str.replace('Z', '+00:00'))
-                delta = datetime.now(dt.tzinfo) - dt
-                days = delta.days
-                if days == 0: texto_tiempo = "Hoy"
-                elif days == 1: texto_tiempo = "Ayer"
-                elif days < 7: texto_tiempo = f"Hace {days} días"
-                elif days < 30: texto_tiempo = f"Hace {days // 7} semanas"
-                else: texto_tiempo = f"Hace {days // 30} meses"
-            except:
-                pass
-
-        formatted.append({
+        item = {
             "id": r["id"],
             "nombre": nombre,
             "iniciales": iniciales,
-            "estrellas": estrellas,
+            "estrellas": stars,
             "comentario": f.get("COMENTARIO", ""),
             "fecha": texto_tiempo,
             "fotoUrl": foto_url
-        })
+        }
+        
+        formatted_map[r["id"]] = item
+        
+        # Clasificar
+        if stars >= 3:
+            if is_recent: pool_recent_good.append(item)
+            else: pool_old_good.append(item)
+        else:
+            if is_recent: pool_recent_bad.append(item)
+            else: pool_old_bad.append(item)
 
-    # Lógica de Selección (Shuffle simple y priorizar buenos)
-    # Separar por estrellas
-    buenos = [t for t in formatted if t["estrellas"] >= 3]
-    otros = [t for t in formatted if t["estrellas"] < 3]
+    # Shuffle pools
+    random.shuffle(pool_recent_good)
+    random.shuffle(pool_recent_bad)
+    random.shuffle(pool_old_good)
+    random.shuffle(pool_old_bad)
+
+    final_selection = []
     
-    random.shuffle(buenos)
-    random.shuffle(otros)
+    # Objetivo: 7 Buenos, 3 Malos/Otros
+    target_good = 7
+    target_bad = 3
     
-    # Tomar hasta 7 buenos y 3 otros (Total 10)
-    seleccion = buenos[:7] + otros[:3] if len(otros) >= 3 else buenos[:7] + otros
+    # 1. Fill Bad (30%)
+    # - Try Recent Bad
+    take_bad = pool_recent_bad[:target_bad]
+    final_selection.extend(take_bad)
+    needed_bad = target_bad - len(take_bad)
     
-    # Completar si falta
-    if len(seleccion) < 10:
-        restantes_buenos = buenos[7:]
-        seleccion.extend(restantes_buenos[:10-len(seleccion)])
+    if needed_bad > 0:
+        # - Fallback to Old Bad
+        take_bad_old = pool_old_bad[:needed_bad]
+        final_selection.extend(take_bad_old)
+        
+    # 2. Fill Good (70%)
+    # - Try Recent Good
+    take_good = pool_recent_good[:target_good]
+    final_selection.extend(take_good)
+    needed_good = target_good - len(take_good)
     
-    random.shuffle(seleccion)
+    if needed_good > 0:
+        # - Fallback to Old Good
+        take_good_old = pool_old_good[:needed_good]
+        final_selection.extend(take_good_old)
+        
+    # 3. Fill Remainder (if < 10 total) with ANYTHING left
+    # Collect leftovers
+    current_ids = {x["id"] for x in final_selection}
+    leftovers = []
+    
+    # Helper to add leftovers
+    for pool in [pool_recent_good, pool_old_good, pool_recent_bad, pool_old_bad]:
+        for item in pool:
+            if item["id"] not in current_ids:
+                leftovers.append(item)
+                
+    random.shuffle(leftovers)
+    needed_total = 10 - len(final_selection)
+    if needed_total > 0:
+        final_selection.extend(leftovers[:needed_total])
+
+    # Final Shuffle for display
+    random.shuffle(final_selection)
 
     return {
-        "testimonios": seleccion,
-        "total": len(seleccion),
-        "mensaje": f"Mostrando {len(seleccion)} opiniones"
+        "testimonios": final_selection,
+        "total": len(final_selection),
+        "mensaje": f"Mostrando {len(final_selection)} opiniones"
     }
 
 @app.get("/api/rating")
