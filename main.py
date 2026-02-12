@@ -3,7 +3,7 @@ import random
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pyairtable import Table, Api
 from pydantic import BaseModel
@@ -143,29 +143,68 @@ async def validar_cliente(dni: str, patente: str):
 async def get_testimonios():
     """
     Obtiene testimonios aprobados de la tabla CALIFICACIONES.
-    Replica la lógica de selección inteligente (60% buenos, etc) o simplificada.
+    Lógica de Selección:
+    - Mix: 70% Buenos (>=3 estrellas), 30% Otros (<3 estrellas).
+    - Prioridad: Últimos 3 meses.
+    - Fallback: Si no completa cupo con recientes, usa antiguos.
+    - Total Objetivo: 10 testimonios.
     """
     table_calif = get_table("CALIFICACIONES")
     if not table_calif:
         raise HTTPException(status_code=500, detail="Airtable config missing")
 
     # Fórmula: Visible=True, Autoriza=True, Comentario!=''
-    # Y antigüedad < 6 meses (aprox)
-    # Airtable formula: AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')
+    # Traemos TODO (sin filtro de fecha en API) para poder hacer el fallback
     formula = "AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')"
     
-    # Sort por fecha creación descendente
-    records = table_calif.all(formula=formula, sort=["-FECHA DE CREACION"])
+    try:
+        records = table_calif.all(formula=formula)
+    except Exception as e:
+        print(f"Error fetching testimonios: {e}")
+        return {"testimonios": [], "total": 0, "mensaje": "Error obteniendo datos"}
     
     if not records:
         return {"testimonios": [], "total": 0, "mensaje": "Sin testimonios disponibles"}
 
-    # Formatear
-    formatted = []
+    # Procesar registros y separar por fecha y calificación
+    now = datetime.now().astimezone() # Aware
+    cutoff_90d = datetime.now().timestamp() - (90 * 24 * 60 * 60) # Timestamp comparison logic easier
+    
+    pool_recent_good = []
+    pool_recent_bad = []
+    pool_old_good = []
+    pool_old_bad = []
+
+    formatted_map = {} # ID -> Formatted Dict
+
     for r in records:
         f = r["fields"]
+        stars = f.get("ESTRELLAS", 0)
+        
+        # Parse Date
+        date_str = f.get("FECHA DE CREACION") or r.get("createdTime")
+        is_recent = False
+        
+        # Intentar parsear fecha
+        try:
+            # ISO format from Airtable: 2023-10-25T12:00:00.000Z
+            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+            is_recent = dt.timestamp() >= cutoff_90d
+            
+            # Texto relativo
+            delta = datetime.now(dt.tzinfo) - dt
+            days = delta.days
+            if days == 0: texto_tiempo = "Hoy"
+            elif days == 1: texto_tiempo = "Ayer"
+            elif days < 7: texto_tiempo = f"Hace {days} días"
+            elif days < 30: texto_tiempo = f"Hace {days // 7} semanas"
+            else: texto_tiempo = f"Hace {days // 30} meses"
+        except:
+            texto_tiempo = "Reciente"
+            is_recent = False 
+
+        # Formatear
         nombre = f.get("NOMBRE", "Anónimo")
-        estrellas = f.get("ESTRELLAS", 0)
         
         # Iniciales
         partes = nombre.strip().split()
@@ -174,61 +213,119 @@ async def get_testimonios():
         else:
             iniciales = "?"
 
-        # Foto
         foto_url = None
         if f.get("USAR FOTO") and f.get("FOTO PERFIL"):
             fotos = f.get("FOTO PERFIL")
             if isinstance(fotos, list) and len(fotos) > 0:
                 foto_url = fotos[0].get("url")
 
-        # Tiempo Relativo (Calculado en Python)
-        fecha_creacion = f.get("FECHA DE CREACION") # ISO String endpoint
-        texto_tiempo = "Reciente"
-        if fecha_creacion:
-            try:
-                dt = datetime.fromisoformat(fecha_creacion.replace('Z', '+00:00'))
-                delta = datetime.now(dt.tzinfo) - dt
-                days = delta.days
-                if days == 0: texto_tiempo = "Hoy"
-                elif days == 1: texto_tiempo = "Ayer"
-                elif days < 7: texto_tiempo = f"Hace {days} días"
-                elif days < 30: texto_tiempo = f"Hace {days // 7} semanas"
-                else: texto_tiempo = f"Hace {days // 30} meses"
-            except:
-                pass
-
-        formatted.append({
+        item = {
             "id": r["id"],
             "nombre": nombre,
             "iniciales": iniciales,
-            "estrellas": estrellas,
+            "estrellas": stars,
             "comentario": f.get("COMENTARIO", ""),
             "fecha": texto_tiempo,
             "fotoUrl": foto_url
-        })
+        }
+        
+        formatted_map[r["id"]] = item
+        
+        # Clasificar
+        if stars >= 3:
+            if is_recent: pool_recent_good.append(item)
+            else: pool_old_good.append(item)
+        else:
+            if is_recent: pool_recent_bad.append(item)
+            else: pool_old_bad.append(item)
 
-    # Lógica de Selección (Shuffle simple y priorizar buenos)
-    # Separar por estrellas
-    buenos = [t for t in formatted if t["estrellas"] >= 3]
-    otros = [t for t in formatted if t["estrellas"] < 3]
+    # Shuffle pools
+    random.shuffle(pool_recent_good)
+    random.shuffle(pool_recent_bad)
+    random.shuffle(pool_old_good)
+    random.shuffle(pool_old_bad)
+
+    final_selection = []
     
-    random.shuffle(buenos)
-    random.shuffle(otros)
+    # Objetivo: 7 Buenos, 3 Malos/Otros
+    target_good = 7
+    target_bad = 3
     
-    # Tomar hasta 7 buenos y 3 otros (Total 10)
-    seleccion = buenos[:7] + otros[:3] if len(otros) >= 3 else buenos[:7] + otros
+    # 1. Fill Bad (30%)
+    # - Try Recent Bad
+    take_bad = pool_recent_bad[:target_bad]
+    final_selection.extend(take_bad)
+    needed_bad = target_bad - len(take_bad)
     
-    # Completar si falta
-    if len(seleccion) < 10:
-        restantes_buenos = buenos[7:]
-        seleccion.extend(restantes_buenos[:10-len(seleccion)])
+    if needed_bad > 0:
+        # - Fallback to Old Bad
+        take_bad_old = pool_old_bad[:needed_bad]
+        final_selection.extend(take_bad_old)
+        
+    # 2. Fill Good (70%)
+    # - Try Recent Good
+    take_good = pool_recent_good[:target_good]
+    final_selection.extend(take_good)
+    needed_good = target_good - len(take_good)
     
-    random.shuffle(seleccion)
+    if needed_good > 0:
+        # - Fallback to Old Good
+        take_good_old = pool_old_good[:needed_good]
+        final_selection.extend(take_good_old)
+        
+    # 3. Fill Remainder (if < 10 total) with ANYTHING left
+    # Collect leftovers
+    current_ids = {x["id"] for x in final_selection}
+    leftovers = []
+    
+    # Helper to add leftovers
+    for pool in [pool_recent_good, pool_old_good, pool_recent_bad, pool_old_bad]:
+        for item in pool:
+            if item["id"] not in current_ids:
+                leftovers.append(item)
+                
+    random.shuffle(leftovers)
+    needed_total = 10 - len(final_selection)
+    if needed_total > 0:
+        final_selection.extend(leftovers[:needed_total])
+
+    # Final Shuffle for display
+    random.shuffle(final_selection)
 
     return {
-        "testimonios": seleccion,
-        "total": len(seleccion),
-        "mensaje": f"Mostrando {len(seleccion)} opiniones"
+        "testimonios": final_selection,
+        "total": len(final_selection),
+        "mensaje": f"Mostrando {len(final_selection)} opiniones"
+    }
+
+@app.get("/api/rating")
+async def get_average_rating():
+    """
+    Calcula el promedio de calificaciones visibles.
+    """
+    table_calif = get_table("CALIFICACIONES")
+    if not table_calif:
+        return {"rating": 5.0, "total": 0}
+    
+    # Formula: VISIBLE=TRUE y ESTRELLAS > 0
+    formula = "AND({VISIBLE}=TRUE(), {ESTRELLAS}>0)"
+    try:
+        records = table_calif.all(formula=formula, fields=["ESTRELLAS"])
+    except:
+        return {"rating": 0, "total": 0}
+        
+    if not records:
+        return {"rating": 0, "total": 0}
+        
+    total_stars = sum(r["fields"].get("ESTRELLAS", 0) for r in records)
+    count = len(records)
+    if count == 0: return {"rating": 0, "total": 0}
+    
+    average = round(total_stars / count, 1)
+    
+    return {
+        "rating": average,
+        "total": count
     }
 
 @app.post("/api/rating")
@@ -260,15 +357,32 @@ async def save_rating(data: RatingRequest):
     client_linked = False
     
     # Intentar vincular cliente
+    # Intentar vincular cliente
     if data.es_cliente == "Sí" and data.dni:
-        fields["DNI"] = data.dni
-        if table_clientes:
-            # Buscar ID del cliente
-            formula = f"{{DNI}}='{data.dni}'"
-            c_records = table_clientes.all(formula=formula, max_records=1)
-            if c_records:
-                fields["CLIENTE"] = [c_records[0]["id"]]  # Link record
-                client_linked = True
+        # Por defecto asumimos 'No' hasta encontrarlo (Lógica N8N)
+        fields["ES_CLIENTE"] = "No" 
+        
+        # Limpiar DNI (solo dígitos porque en Airtable es NUMBER)
+        dni_limpio = "".join(filter(str.isdigit, str(data.dni)))
+
+        if table_clientes and dni_limpio:
+            try:
+                # Buscar ID del cliente (Campo numérico, sin comillas)
+                formula = f"{{DNI}}={dni_limpio}"
+                c_records = table_clientes.all(formula=formula, max_records=1)
+                
+                if c_records:
+                    fields["CLIENTE"] = [c_records[0]["id"]]  # Link record
+                    fields["ES_CLIENTE"] = "Sí"  # Confirmado
+                    fields["DNI"] = int(dni_limpio) # Guardar como número si el campo destino lo permite o string limpio
+                    client_linked = True
+                else:
+                    # No encontrado -> Se mantiene ES_CLIENTE='No'
+                    pass
+            except Exception as e_airtable:
+                print(f"Error buscando cliente en Airtable: {e_airtable}")
+                # No fallamos todo el proceso, solo la vinculación
+                pass
     
     try:
         record = table_calif.create(fields)
@@ -282,17 +396,84 @@ async def save_rating(data: RatingRequest):
         print(f"Error creando rating: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/siniestro")
-async def save_siniestro(data: dict = Body(...)):
+class SiniestroValidationRequest(BaseModel):
+    dni: str
+    patente: str
+
+@app.get("/api/validate-siniestro")
+async def validate_siniestro(dni: str, patente: str):
     """
-    Endpoint temporal para Siniestros.
-    Por ahora solo loguea, ya que el manejo de archivos requiere storage externo.
-    Se recomienda mantener N8N para esto o implementar Cloudinary.
+    Valida cliente y póliza para el flujo de Siniestros.
+    Retorna objeto compatible con app.js Siniestros.
     """
-    # TODO: Implementar subida de archivos o conexión a storage.
-    print("Siniestro recibido (Python):", data)
-    return {
-        "status": "success", 
-        "message": "Siniestro recibido (sin archivos procesados aún)",
-        "data": data
-    }
+    table_clientes = get_table("CLIENTES")
+    table_polizas = get_table("POLIZAS")
+    
+    if not table_clientes or not table_polizas:
+        raise HTTPException(status_code=500, detail="Airtable config error")
+        
+    dni_limpio = "".join(filter(str.isdigit, str(dni)))
+    patente_limpia = patente.upper().strip().replace(" ", "")
+    
+    if not dni_limpio or not patente_limpia:
+        return {"valid": False, "message": "Datos incompletos"}
+
+    # 1. Buscar Cliente
+    cliente_data = None
+    cliente_id = None
+    try:
+        c_records = table_clientes.all(formula=f"{{DNI}}={dni_limpio}", max_records=1)
+        if c_records:
+            rec = c_records[0]
+            cliente_id = rec["id"]
+            cliente_data = {
+                "nombres": rec["fields"].get("NOMBRE", ""),
+                "apellido": rec["fields"].get("APELLIDO", ""),
+            }
+    except Exception as e:
+        print(f"Error buscando cliente: {e}")
+        return {"valid": False, "message": "Error validando cliente"}
+
+    # 2. Buscar Póliza (Buscamos por patente exacta, normalizada)
+    poliza_data = None
+    poliza_link_ok = False
+    
+    try:
+        # Nota: Formula asume que PATENTE DEL VEHICULO es texto. 
+        # Si es lookup array, usar SEARCH() o similar. Asumimos texto o formula.
+        p_records = table_polizas.all(formula=f"{{PATENTE DEL VEHICULO}}='{patente_limpia}'", max_records=1)
+        
+        if p_records:
+            rec = p_records[0]
+            # Verificar link con cliente
+            linked_clients = rec["fields"].get("CLIENTE", [])
+            
+            # Si encontramos cliente y póliza, verificamos que coincidan
+            if cliente_id and (cliente_id in linked_clients):
+                poliza_link_ok = True
+                
+            # Datos de Póliza para frontend
+            poliza_data = {
+                "id": rec["id"],
+                "visual_id": rec["fields"].get("ID_GESTION_UNICO", ""),
+                "numero": rec["fields"].get("POLIZA", ""),
+                "descripcion": f"{rec['fields'].get('MARCA VEHICULO','')} {rec['fields'].get('MODELO VEHICULO','')}".strip()
+            }
+    except Exception as e:
+        print(f"Error buscando póliza: {e}")
+        return {"valid": False, "message": "Error buscando póliza"}
+
+    if cliente_data and poliza_data and poliza_link_ok:
+        return {
+            "valid": True,
+            "cliente": cliente_data,
+            "poliza": poliza_data
+        }
+    elif not cliente_data:
+        return {"valid": False, "message": "Cliente no encontrado"}
+    elif not poliza_data:
+        return {"valid": False, "message": "Vehículo no encontrado"}
+    else:
+        return {"valid": False, "message": "El vehículo no corresponde al DNI ingresado"}
+
+# @app.post("/api/siniestro") -> ENDPOINT REMOVED (Logic moved to Frontend Airtable Param)
