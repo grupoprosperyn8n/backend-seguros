@@ -31,18 +31,26 @@ async def save_rating(data: RatingRequest):
         # Por defecto asumimos 'No' hasta encontrarlo (Lógica N8N)
         fields["ES_CLIENTE"] = "No" 
         
-        if table_clientes:
-            # Buscar ID del cliente
-            formula = f"{{DNI}}='{data.dni}'"
-            c_records = table_clientes.all(formula=formula, max_records=1)
-            
-            if c_records:
-                fields["CLIENTE"] = [c_records[0]["id"]]  # Link record
-                fields["ES_CLIENTE"] = "Sí"  # Confirmado
-                fields["DNI"] = data.dni
-                client_linked = True
-            else:
-                # No encontrado -> Se mantiene ES_CLIENTE='No' y sin DNI vinculado
+        # Limpiar DNI (solo dígitos porque en Airtable es NUMBER)
+        dni_limpio = "".join(filter(str.isdigit, str(data.dni)))
+
+        if table_clientes and dni_limpio:
+            try:
+                # Buscar ID del cliente (Campo numérico, sin comillas)
+                formula = f"{{DNI}}={dni_limpio}"
+                c_records = table_clientes.all(formula=formula, max_records=1)
+                
+                if c_records:
+                    fields["CLIENTE"] = [c_records[0]["id"]]  # Link record
+                    fields["ES_CLIENTE"] = "Sí"  # Confirmado
+                    fields["DNI"] = int(dni_limpio) # Guardar como número si el campo destino lo permite o string limpio
+                    client_linked = True
+                else:
+                    # No encontrado -> Se mantiene ES_CLIENTE='No'
+                    pass
+            except Exception as e_airtable:
+                print(f"Error buscando cliente en Airtable: {e_airtable}")
+                # No fallamos todo el proceso, solo la vinculación
                 pass
     
     try:
