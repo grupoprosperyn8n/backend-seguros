@@ -536,38 +536,84 @@ async def validate_siniestro(dni: str, patente: str):
         }
 
     # 4. Extraer el bloque completo de la póliza que corresponde a esta patente
-    # El formato puede tener múltiples pólizas separadas, necesitamos encontrar el bloque correcto
-    # Ejemplo: "✅ VENCE 30D | 🚗 AUTO | N° POL: 33333333 | 🏷️ PDL384 | 🅰️ A | ❤️ VIDA: SI | 🔧 AUX | ❌ ANULADA | ..."
+    # El formato puede tener múltiples pólizas separadas por pipes.
+    # Estrategia: Dividir por '|' y agrupar. Un nuevo grupo empieza cuando detectamos un Estado (✅, ❌, ⏳, ⚠️).
     
-    # Buscar el bloque que contiene la patente buscada
-    # Dividir por patrones que indican inicio de nueva póliza (emoji de estado + emoji de vehículo)
-    import re
+    parts = [p.strip() for p in texto_polizas.split("|")]
+    bloques_detectados = []
+    current_bloque = []
     
-    # Buscar todos los bloques que empiezan con emoji de estado
-    bloques_poliza = re.split(r'(?=[✅⏳❌⚠️]\s*[A-Z])', texto_polizas)
+    emojis_inicio = ["✅", "❌", "⏳", "⚠️"]
     
-    # Encontrar el bloque que contiene nuestra patente
+    for part in parts:
+        # Verificar si este fragmento es el inicio de una nueva póliza (tiene emoji de estado)
+        es_inicio = any(e in part for e in emojis_inicio) and ("VENCE" in part or "ANULADA" in part or "BAJA" in part or "ACTIVA" in part)
+        
+        # Caso especial: Si es el primer fragmento, siempre empieza bloque
+        if not current_bloque:
+            current_bloque.append(part)
+        elif es_inicio:
+            # Guardar el bloque anterior y empezar uno nuevo
+            bloques_detectados.append(" | ".join(current_bloque))
+            current_bloque = [part]
+        else:
+            # Continuar agregando al bloque actual
+            current_bloque.append(part)
+            
+    # Agregar el último bloque procesado
+    if current_bloque:
+        bloques_detectados.append(" | ".join(current_bloque))
+        
+    # Buscar cuál de estos bloques contiene la patente
     bloque_match = None
-    for bloque in bloques_poliza:
-        if f"🏷️ {patente_limpia}" in bloque.upper() or f"🏷️{patente_limpia}" in bloque.upper():
+    for bloque in bloques_detectados:
+        # Chequeo robusto de patente: que esté la patente y (opcionalmente) el emoji
+        if patente_limpia in bloque.upper():
             bloque_match = bloque
             break
-    
-    # Si no encontramos con el método anterior, usar el texto completo
+            
+    # Fallback si no se encontró (usar todo el texto, aunque sea arriesgado)
     if not bloque_match:
         bloque_match = texto_polizas
-    
-    # Verificar estado (ANULADA/BAJA)
+
+    # Verificar estado (ANULADA/BAJA) SOLAMENTE en el bloque coincidente
     if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
         return {
             "valid": False,
             "message": f"La póliza del vehículo {patente_limpia} figura como ANULADA o DE BAJA."
         }
-
+    
     # 5. Parsear toda la información de la póliza usando helper
     poliza_info = parse_poliza_block(bloque_match)
 
-    # 6. Retornar datos completos en formato compatible con app.js
+    # 6. Obtener Record ID de la Póliza para pre-llenado correcto en Airtable
+    # El formulario requiere el ID (rec...) para vincular, no el número de texto.
+    record_id_poliza = None
+    ids_polizas = cliente.get("POLIZAS", [])
+    
+    if ids_polizas:
+        try:
+            table_polizas = get_table("POLIZAS")
+            if table_polizas:
+                # Iteramos las pólizas del cliente para encontrar la que coincide con la patente
+                # Esto es más seguro que buscar en toda la tabla
+                for pid in ids_polizas:
+                    try:
+                        pol_record = table_polizas.get(pid)
+                        fields_p = pol_record["fields"]
+                        # Buscamos patente en campos clave o etiqueta
+                        # Usamos representación string de campos para asegurar match
+                        str_fields = str(fields_p.values()).upper()
+                        
+                        if patente_limpia in str_fields:
+                            record_id_poliza = pid
+                            break
+                    except:
+                        continue
+        except Exception as e:
+            print(f"Error fetching poliza details: {e}")
+
+    # 7. Retornar datos completos
     return {
         "valid": True,
         "cliente": {
@@ -575,6 +621,7 @@ async def validate_siniestro(dni: str, patente: str):
             "apellido": cliente.get("APELLIDO", ""),
         },
         "poliza": {
+            "record_id": record_id_poliza, # ID para Linked Record
             "numero": poliza_info["numero"],
             "patente": poliza_info["patente"],
             "tipo_vehiculo": poliza_info["tipo_vehiculo"],
