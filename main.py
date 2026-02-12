@@ -300,28 +300,47 @@ def validate_siniestro(dni: str, patente: str):
         }
 
     # 4. Extraer el bloque completo de la póliza que corresponde a esta patente
-    # El formato puede tener múltiples pólizas separadas, necesitamos encontrar el bloque correcto
-    # Ejemplo: "✅ VENCE 30D | 🚗 AUTO | N° POL: 33333333 | 🏷️ PDL384 | 🅰️ A | ❤️ VIDA: SI | 🔧 AUX | ❌ ANULADA | ..."
+    # El formato puede tener múltiples pólizas separadas por pipes.
+    # Estrategia: Dividir por '|' y agrupar. Un nuevo grupo empieza cuando detectamos un Estado (✅, ❌, ⏳, ⚠️).
     
-    # Buscar el bloque que contiene la patente buscada
-    # Dividir por patrones que indican inicio de nueva póliza (emoji de estado + emoji de vehículo)
-    import re
+    parts = [p.strip() for p in texto_polizas.split("|")]
+    bloques_detectados = []
+    current_bloque = []
     
-    # Buscar todos los bloques que empiezan con emoji de estado
-    bloques_poliza = re.split(r'(?=[✅⏳❌⚠️]\s*[A-Z])', texto_polizas)
+    emojis_inicio = ["✅", "❌", "⏳", "⚠️"]
     
-    # Encontrar el bloque que contiene nuestra patente
+    for part in parts:
+        # Verificar si este fragmento es el inicio de una nueva póliza (tiene emoji de estado)
+        es_inicio = any(e in part for e in emojis_inicio) and ("VENCE" in part or "ANULADA" in part or "BAJA" in part or "ACTIVA" in part)
+        
+        # Caso especial: Si es el primer fragmento, siempre empieza bloque
+        if not current_bloque:
+            current_bloque.append(part)
+        elif es_inicio:
+            # Guardar el bloque anterior y empezar uno nuevo
+            bloques_detectados.append(" | ".join(current_bloque))
+            current_bloque = [part]
+        else:
+            # Continuar agregando al bloque actual
+            current_bloque.append(part)
+            
+    # Agregar el último bloque procesado
+    if current_bloque:
+        bloques_detectados.append(" | ".join(current_bloque))
+        
+    # Buscar cuál de estos bloques contiene la patente
     bloque_match = None
-    for bloque in bloques_poliza:
-        if f"🏷️ {patente_limpia}" in bloque.upper() or f"🏷️{patente_limpia}" in bloque.upper():
+    for bloque in bloques_detectados:
+        # Chequeo robusto de patente: que esté la patente y (opcionalmente) el emoji
+        if patente_limpia in bloque.upper():
             bloque_match = bloque
             break
-    
-    # Si no encontramos con el método anterior, usar el texto completo
+            
+    # Fallback si no se encontró (usar todo el texto, aunque sea arriesgado)
     if not bloque_match:
         bloque_match = texto_polizas
-    
-    # Verificar estado (ANULADA/BAJA)
+
+    # Verificar estado (ANULADA/BAJA) SOLAMENTE en el bloque coincidente
     if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
         return {
             "valid": False,
