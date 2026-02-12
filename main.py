@@ -3,7 +3,7 @@ import random
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pyairtable import Table, Api
 from pydantic import BaseModel
