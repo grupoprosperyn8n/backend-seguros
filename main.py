@@ -47,6 +47,93 @@ class RatingRequest(BaseModel):
     usar_foto: Optional[bool] = False
 
 # ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+def parse_poliza_block(bloque_texto: str) -> dict:
+    """
+    Parsea un bloque de ETIQUETA_POLIZA y extrae toda la información.
+    
+    Ejemplo input:
+    "✅ VENCE 30D | 🚗 AUTO | N° POL: 33333333 | 🏷️ PDL384 | 🅰️ A | ❤️ VIDA: SI | 🔧 AUX"
+    
+    Returns:
+    {
+        "numero": "33333333",
+        "patente": "PDL384",
+        "tipo_vehiculo": "AUTO",
+        "categoria": "A",
+        "vida": True,
+        "auxilio": True,
+        "estado": "VENCE 30D",
+        "descripcion_completa": "..."
+    }
+    """
+    import re
+    
+    info = {
+        "numero": "",
+        "patente": "",
+        "tipo_vehiculo": "",
+        "categoria": "",
+        "vida": False,
+        "auxilio": False,
+        "estado": "",
+        "descripcion_completa": bloque_texto.strip()
+    }
+    
+    # Extraer N° POL (buscar patrón más flexible)
+    match = re.search(r'N°\s*POL:?\s*(\d+)', bloque_texto, re.IGNORECASE)
+    if match:
+        info["numero"] = match.group(1)
+    
+    # Extraer Patente (después del emoji 🏷️)
+    match = re.search(r'🏷️\s*([A-Z0-9]+)', bloque_texto)
+    if match:
+        info["patente"] = match.group(1)
+    
+    # Extraer Tipo de vehículo (buscar palabra después de emoji de vehículo)
+    # Formato: "🚗 AUTO" o "🚛 CAMIONETA"
+    match = re.search(r'[🚗🚙🚛🏍️]\s+([A-ZÁ-Ú]+)', bloque_texto)
+    if match:
+        tipo = match.group(1).strip()
+        # Filtrar palabras que no son tipos de vehículo
+        if tipo not in ['VENCE', 'POL', 'VIDA', 'AUX', 'ANULADA', 'BAJA']:
+            info["tipo_vehiculo"] = tipo
+    
+    # Extraer Categoría (después del emoji 🅰️)
+    match = re.search(r'🅰️\s*([A-Z])', bloque_texto)
+    if match:
+        info["categoria"] = match.group(1)
+    
+    # Extraer VIDA (buscar "VIDA: SI" o solo emoji ❤️)
+    if re.search(r'VIDA:\s*SI', bloque_texto, re.IGNORECASE):
+        info["vida"] = True
+    elif '❤️' in bloque_texto and 'VIDA' not in bloque_texto.upper():
+        # Si tiene el emoji pero no dice explícitamente, asumir SI
+        info["vida"] = True
+    
+    # Extraer AUXILIO (buscar "AUX" con emoji 🔧)
+    if '🔧' in bloque_texto and 'AUX' in bloque_texto.upper():
+        info["auxilio"] = True
+    
+    # Extraer Estado (primera parte antes del primer | que no sea emoji)
+    partes = bloque_texto.split("|")
+    if partes:
+        estado = partes[0].strip()
+        # Limpiar emojis de estado
+        for char in ["✅", "⏳", "❌", "⚠️"]:
+            estado = estado.replace(char, "")
+        estado = estado.strip()
+        # Validar que no sea solo un emoji o vacío
+        if estado and len(estado) > 2:
+            info["estado"] = estado
+    
+    return info
+
+
+
+# ==============================================================================
 # ENDPOINTS
 # ==============================================================================
 
@@ -404,12 +491,12 @@ class SiniestroValidationRequest(BaseModel):
 async def validate_siniestro(dni: str, patente: str):
     """
     Valida cliente y póliza para el flujo de Siniestros.
+    Usa la tabla CLIENTES y el campo ETIQUETA_POLIZA Compilación (de POLIZAS).
     Retorna objeto compatible con app.js Siniestros.
     """
     table_clientes = get_table("CLIENTES")
-    table_polizas = get_table("POLIZAS")
     
-    if not table_clientes or not table_polizas:
+    if not table_clientes:
         raise HTTPException(status_code=500, detail="Airtable config error")
         
     dni_limpio = "".join(filter(str.isdigit, str(dni)))
@@ -418,62 +505,86 @@ async def validate_siniestro(dni: str, patente: str):
     if not dni_limpio or not patente_limpia:
         return {"valid": False, "message": "Datos incompletos"}
 
-    # 1. Buscar Cliente
-    cliente_data = None
-    cliente_id = None
+    # 1. Buscar Cliente por DNI
+    formula = f"({{DNI}} & \"\") = \"{dni_limpio}\""
     try:
-        c_records = table_clientes.all(formula=f"{{DNI}}={dni_limpio}", max_records=1)
-        if c_records:
-            rec = c_records[0]
-            cliente_id = rec["id"]
-            cliente_data = {
-                "nombres": rec["fields"].get("NOMBRE", ""),
-                "apellido": rec["fields"].get("APELLIDO", ""),
-            }
+        records = table_clientes.all(formula=formula, max_records=1)
     except Exception as e:
         print(f"Error buscando cliente: {e}")
         return {"valid": False, "message": "Error validando cliente"}
 
-    # 2. Buscar Póliza (Buscamos por patente exacta, normalizada)
-    poliza_data = None
-    poliza_link_ok = False
-    
-    try:
-        # Nota: Formula asume que PATENTE DEL VEHICULO es texto. 
-        # Si es lookup array, usar SEARCH() o similar. Asumimos texto o formula.
-        p_records = table_polizas.all(formula=f"{{PATENTE DEL VEHICULO}}='{patente_limpia}'", max_records=1)
-        
-        if p_records:
-            rec = p_records[0]
-            # Verificar link con cliente
-            linked_clients = rec["fields"].get("CLIENTE", [])
-            
-            # Si encontramos cliente y póliza, verificamos que coincidan
-            if cliente_id and (cliente_id in linked_clients):
-                poliza_link_ok = True
-                
-            # Datos de Póliza para frontend
-            poliza_data = {
-                "id": rec["id"],
-                "visual_id": rec["fields"].get("ID_GESTION_UNICO", ""),
-                "numero": rec["fields"].get("POLIZA", ""),
-                "descripcion": f"{rec['fields'].get('MARCA VEHICULO','')} {rec['fields'].get('MODELO VEHICULO','')}".strip()
-            }
-    except Exception as e:
-        print(f"Error buscando póliza: {e}")
-        return {"valid": False, "message": "Error buscando póliza"}
-
-    if cliente_data and poliza_data and poliza_link_ok:
-        return {
-            "valid": True,
-            "cliente": cliente_data,
-            "poliza": poliza_data
-        }
-    elif not cliente_data:
+    if not records:
         return {"valid": False, "message": "Cliente no encontrado"}
-    elif not poliza_data:
-        return {"valid": False, "message": "Vehículo no encontrado"}
+
+    cliente = records[0]["fields"]
+    nombre_completo = cliente.get("NOMBRE COMPLETO") or cliente.get("NOMBRES") or "Cliente"
+    
+    # 2. Obtener compilación de pólizas (Lookup)
+    compilacion = cliente.get("ETIQUETA_POLIZA Compilación (de POLIZAS)", [])
+    
+    # Manejar si es string o lista
+    if isinstance(compilacion, list):
+        texto_polizas = " | ".join([str(x) for x in compilacion])
     else:
-        return {"valid": False, "message": "El vehículo no corresponde al DNI ingresado"}
+        texto_polizas = str(compilacion or "")
+
+    # 3. Verificar si la patente está en el texto de pólizas
+    if patente_limpia not in texto_polizas.upper():
+        return {
+            "valid": False,
+            "message": f"No encontramos el vehículo patente {patente_limpia} asociado a tu DNI."
+        }
+
+    # 4. Extraer el bloque completo de la póliza que corresponde a esta patente
+    # El formato puede tener múltiples pólizas separadas, necesitamos encontrar el bloque correcto
+    # Ejemplo: "✅ VENCE 30D | 🚗 AUTO | N° POL: 33333333 | 🏷️ PDL384 | 🅰️ A | ❤️ VIDA: SI | 🔧 AUX | ❌ ANULADA | ..."
+    
+    # Buscar el bloque que contiene la patente buscada
+    # Dividir por patrones que indican inicio de nueva póliza (emoji de estado + emoji de vehículo)
+    import re
+    
+    # Buscar todos los bloques que empiezan con emoji de estado
+    bloques_poliza = re.split(r'(?=[✅⏳❌⚠️]\s*[A-Z])', texto_polizas)
+    
+    # Encontrar el bloque que contiene nuestra patente
+    bloque_match = None
+    for bloque in bloques_poliza:
+        if f"🏷️ {patente_limpia}" in bloque.upper() or f"🏷️{patente_limpia}" in bloque.upper():
+            bloque_match = bloque
+            break
+    
+    # Si no encontramos con el método anterior, usar el texto completo
+    if not bloque_match:
+        bloque_match = texto_polizas
+    
+    # Verificar estado (ANULADA/BAJA)
+    if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
+        return {
+            "valid": False,
+            "message": f"La póliza del vehículo {patente_limpia} figura como ANULADA o DE BAJA."
+        }
+
+    # 5. Parsear toda la información de la póliza usando helper
+    poliza_info = parse_poliza_block(bloque_match)
+
+    # 6. Retornar datos completos en formato compatible con app.js
+    return {
+        "valid": True,
+        "cliente": {
+            "nombres": cliente.get("NOMBRES", ""),
+            "apellido": cliente.get("APELLIDO", ""),
+        },
+        "poliza": {
+            "numero": poliza_info["numero"],
+            "patente": poliza_info["patente"],
+            "tipo_vehiculo": poliza_info["tipo_vehiculo"],
+            "categoria": poliza_info["categoria"],
+            "vida": poliza_info["vida"],
+            "auxilio": poliza_info["auxilio"],
+            "estado": poliza_info["estado"],
+            "descripcion_completa": poliza_info["descripcion_completa"]
+        }
+    }
+
 
 # @app.post("/api/siniestro") -> ENDPOINT REMOVED (Logic moved to Frontend Airtable Param)
