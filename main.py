@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
+# Force Deploy v2
 
 # Configuración CORS
 app.add_middleware(
@@ -50,87 +51,80 @@ class RatingRequest(BaseModel):
 # HELPER FUNCTIONS
 # ==============================================================================
 
-def parse_poliza_block(bloque_texto: str) -> dict:
+def parse_poliza_block(bloque_texto: str) -> list:
     """
     Parsea un bloque de ETIQUETA_POLIZA y extrae toda la información.
-    
-    Ejemplo input:
-    "✅ VENCE 30D | 🚗 AUTO | N° POL: 33333333 | 🏷️ PDL384 | 🅰️ A | ❤️ VIDA: SI | 🔧 AUX"
-    
-    Returns:
-    {
-        "numero": "33333333",
-        "patente": "PDL384",
-        "tipo_vehiculo": "AUTO",
-        "categoria": "A",
-        "vida": True,
-        "auxilio": True,
-        "estado": "VENCE 30D",
-        "descripcion_completa": "..."
-    }
+    Soporta múltiples pólizas concatenadas separandolas por emojis de estado.
+    Retorna una LISTA de diccionarios con la info de cada poliiza encontrada.
     """
     import re
     
-    info = {
-        "numero": "",
-        "patente": "",
-        "tipo_vehiculo": "",
-        "categoria": "",
-        "vida": False,
-        "auxilio": False,
-        "estado": "",
-        "descripcion_completa": bloque_texto.strip()
-    }
-    
-    # Extraer N° POL (buscar patrón más flexible)
-    match = re.search(r'N°\s*POL:?\s*(\d+)', bloque_texto, re.IGNORECASE)
-    if match:
-        info["numero"] = match.group(1)
-    
-    # Extraer Patente (después del emoji 🏷️)
-    match = re.search(r'🏷️\s*([A-Z0-9]+)', bloque_texto)
-    if match:
-        info["patente"] = match.group(1)
-    
-    # Extraer Tipo de vehículo (buscar palabra después de emoji de vehículo)
-    # Formato: "🚗 AUTO" o "🚛 CAMIONETA"
-    match = re.search(r'[🚗🚙🚛🏍️]\s+([A-ZÁ-Ú]+)', bloque_texto)
-    if match:
-        tipo = match.group(1).strip()
-        # Filtrar palabras que no son tipos de vehículo
-        if tipo not in ['VENCE', 'POL', 'VIDA', 'AUX', 'ANULADA', 'BAJA']:
-            info["tipo_vehiculo"] = tipo
-    
-    # Extraer Categoría (después del emoji 🅰️)
-    match = re.search(r'🅰️\s*([A-Z])', bloque_texto)
-    if match:
-        info["categoria"] = match.group(1)
-    
-    # Extraer VIDA (buscar "VIDA: SI" o solo emoji ❤️)
-    if re.search(r'VIDA:\s*SI', bloque_texto, re.IGNORECASE):
-        info["vida"] = True
-    elif '❤️' in bloque_texto and 'VIDA' not in bloque_texto.upper():
-        # Si tiene el emoji pero no dice explícitamente, asumir SI
-        info["vida"] = True
-    
-    # Extraer AUXILIO (buscar "AUX" con emoji 🔧)
-    if '🔧' in bloque_texto and 'AUX' in bloque_texto.upper():
-        info["auxilio"] = True
-    
-    # Extraer Estado (primera parte antes del primer | que no sea emoji)
-    partes = bloque_texto.split("|")
-    if partes:
-        estado = partes[0].strip()
-        # Limpiar emojis de estado
-        for char in ["✅", "⏳", "❌", "⚠️"]:
-            estado = estado.replace(char, "")
-        estado = estado.strip()
-        # Validar que no sea solo un emoji o vacío
-        if estado and len(estado) > 2:
-            info["estado"] = estado
-    
-    return info
+    # 1. Limpieza inicial
+    if not bloque_texto:
+        return []
 
+    # 2. Estrategia de Split: Dividir por emojis de estado que marcan el inicio de un bloque
+    # Expresión regular que busca emojis comunes de inicio de bloque
+    # (?=...) es un lookahead positivo para mantener el delimitador
+    SEPARATORS_PATTERN = r'(?=[✅🔴🟢⏳⚠️❌])' 
+    
+    posibles_bloques = re.split(SEPARATORS_PATTERN, bloque_texto)
+    bloques = [b.strip() for b in posibles_bloques if b.strip()]
+
+    # Si no se encontraron bloques con emojis, tratamos todo como un solo bloque
+    if not bloques:
+        bloques = [bloque_texto]
+
+    parsed_policies = []
+    
+    for bloque in bloques:
+        p_info = {
+            "numero": "",
+            "patente": "",
+            "tipo_vehiculo": "",
+            "categoria": "",
+            "vida": False,
+            "auxilio": False,
+            "estado": "",
+            "descripcion_completa": bloque
+        }
+        
+        # Extraer N° POL
+        match = re.search(r'N°\s*POL:?\s*(\d+)', bloque, re.IGNORECASE)
+        if match:
+            p_info["numero"] = match.group(1)
+        
+        # Extraer Patente
+        match = re.search(r'🏷️\s*([A-Z0-9]+)', bloque, re.IGNORECASE)
+        if match:
+            p_info["patente"] = match.group(1).upper()
+        
+        # Extraer Tipo de vehículo
+        match = re.search(r'[🚗🚙🚛🏍️]\s+([A-ZÁ-Ú]+)', bloque)
+        if match:
+            tipo = match.group(1).strip()
+            if len(tipo) > 2 and tipo not in ["POL"]: 
+                p_info["tipo_vehiculo"] = tipo
+            
+        # Extraer Estado
+        if "ANULADA" in bloque:
+            p_info["estado"] = "ANULADA"
+        elif "VIGENTE" in bloque:
+            p_info["estado"] = "VIGENTE"
+        
+        match_vence = re.search(r'(VENCE\s*\d+D?)', bloque)
+        if match_vence:
+            p_info["estado"] = match_vence.group(1)
+        
+        # Extras
+        if "VIDA: SI" in bloque or "❤️ VIDA" in bloque:
+            p_info["vida"] = True
+        if "AUX" in bloque or "🆘" in bloque or "🔧" in bloque:
+            p_info["auxilio"] = True
+            
+        parsed_policies.append(p_info)
+
+    return parsed_policies
 
 
 # ==============================================================================
@@ -174,41 +168,70 @@ async def validar_cliente(dni: str, patente: str):
     compilacion = cliente.get("ETIQUETA_POLIZA Compilación (de POLIZAS)", [])
     
     # Manejar si es string o lista
+    texto_polizas = ""
     if isinstance(compilacion, list):
-        texto_polizas = " | ".join([str(x) for x in compilacion])
+        texto_polizas = " ".join([str(x) for x in compilacion])
     else:
         texto_polizas = str(compilacion or "")
 
-    patente_upper = patente.upper().strip()
+    # 3. Parsear INTELIGENTEMENTE todas las pólizas
+    polizas_encontradas = parse_poliza_block(texto_polizas)
     
-    # 3. Verificar si la patente está en el texto de pólizas
-    if patente_upper not in texto_polizas.upper():
+    patente_buscada = patente.upper().strip()
+    poliza_match = None
+    
+    # Buscar la póliza específica
+    for p in polizas_encontradas:
+        if p["patente"] == patente_buscada:
+            poliza_match = p
+            break
+            
+    if not poliza_match:
          return {
             "valid": False,
             "reason": "PATENTE_NOT_FOUND",
-            "message": f"Hola {nombre_completo}, no encontramos el vehículo patente {patente_upper} asociado a tu DNI."
+            "message": f"Hola {nombre_completo}, no encontramos el vehículo patente {patente_buscada} asociado a tu DNI."
         }
 
     # 4. Verificar estado (ANULADA/BAJA)
-    # Buscamos el bloque específico que contiene la patente para ver su estado
-    # Formato esperado aprox: "✅ AUTO COROLLA... | ❌ ANULADA AUTO..."
-    bloques = texto_polizas.split("|")
-    bloque_match = next((b for b in bloques if patente_upper in b.upper()), texto_polizas)
-    
-    if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
+    estado_poliza = poliza_match.get("estado", "").upper()
+    if "ANULADA" in estado_poliza or "BAJA" in estado_poliza:
          return {
             "valid": False,
             "reason": "POLICY_INACTIVE",
-            "message": f"La póliza del vehículo {patente_upper} figura como ANULADA o DE BAJA."
+            "message": f"La póliza del vehículo {patente_buscada} figura como ANULADA o DE BAJA."
         }
 
     # Limpieza de descripción (quitar emojis al inicio si existen)
-    # Ej: "✅ ⏳ VENCE 30D AUTO..." -> "AUTO..."
-    descripcion = bloque_match.strip()
-    # Simple limpieza de caracteres comunes de estado al inicio
+    descripcion = poliza_match.get("descripcion_completa", "").strip()
     for char in ["✅", "⏳", "❌", "⚠️"]:
         descripcion = descripcion.replace(char, "")
     descripcion = descripcion.strip()
+
+    # 5. Obtener Record ID de la Póliza (Crucial para Airtable Linked Record)
+    record_id_poliza = None
+    ids_polizas = cliente.get("POLIZAS", [])
+    
+    if ids_polizas:
+        try:
+            table_polizas = get_table("POLIZAS")
+            if table_polizas:
+                # Iteramos las pólizas del cliente para encontrar la que coincide con la patente
+                # Esto es necesario porque el ID no está en el string compilado
+                for pid in ids_polizas:
+                    try:
+                        pol_record = table_polizas.get(pid)
+                        fields_p = pol_record["fields"]
+                        # Buscamos patente en campos clave o etiqueta
+                        str_fields = str(fields_p.values()).upper()
+                        
+                        if patente_upper in str_fields:
+                            record_id_poliza = pid
+                            break
+                    except:
+                        continue
+        except Exception as e:
+            print(f"Error fetching poliza details: {e}")
 
     return {
         "valid": True,
@@ -219,10 +242,15 @@ async def validar_cliente(dni: str, patente: str):
             "fullname": nombre_completo
         },
         "poliza": {
-            "id": "no_disponible_desde_cliente",
-            "numero": "0000",
-            "patente": patente_upper,
-            "descripcion": descripcion
+            "record_id": record_id_poliza,
+            "numero": poliza_match.get("numero", "0000"),
+            "patente": poliza_match.get("patente", patente_upper),
+            "tipo_vehiculo": poliza_match.get("tipo_vehiculo", "VEHICULO"),
+            "categoria": poliza_match.get("categoria", ""),
+            "vida": poliza_match.get("vida", False),
+            "auxilio": poliza_match.get("auxilio", False),
+            "estado": poliza_match.get("estado", "DESCONOCIDO"),
+            "descripcion_completa": descripcion
         }
     }
 
@@ -634,4 +662,151 @@ async def validate_siniestro(dni: str, patente: str):
     }
 
 
-# @app.post("/api/siniestro") -> ENDPOINT REMOVED (Logic moved to Frontend Airtable Param)
+# ==============================================================================
+# CONFIGURACIÓN DINÁMICA DE FORMULARIOS
+# ==============================================================================
+
+# ==============================================================================
+# CRECIÓN DE SINIESTRO
+# ==============================================================================
+
+class SiniestroRequest(BaseModel):
+    tipo_formulario: str
+    poliza_record_id: str
+    datos: dict
+    dni: Optional[str] = None
+    patente: Optional[str] = None
+
+@app.post("/api/create-siniestro")
+async def create_siniestro(request: SiniestroRequest):
+    """
+    Crea un registro en la tabla correspondiente de Airtable según el tipo de formulario.
+    Vincula automáticamente Póliza y Cliente si están disponibles.
+    """
+    print(f"📝 Recibiendo siniestro: {request.tipo_formulario}")
+    
+    # 1. Determinar Tabla y Mapeo según Tipo
+    table_name = ""
+    fields_map = {}
+    
+    # IMPORTANTE: IDs de tablas y nombres de campos según Metadata
+    # Accidente: DENUNCIA DE ACCIDENTE
+    # Robo/Incendio: DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL
+    # Robo Parcial: CARGA DENUNCIA OC (  CRISTALES, CERRADURAS, BATERIA, RUEDAS )
+    
+    if request.tipo_formulario == "accidente":
+        table_name = "DENUNCIA DE ACCIDENTE"
+        fields_map = {
+            "fecha": "FECHA DEL SINIESTRO",
+            "hora": "HORA APROX. DEL SINIESTRO",
+            "direccion": "LUGAR O ESTABLECIMIENTO", # O "DIRECCIÓN Y N°"
+            "relato": "RELATOS DEL HECHO",
+            # "terceros": "HUBO TERCEROS?", # Chequear campo exacto
+            # "lesionados": "HUBO LESIONADOS?" # Chequear campo exacto
+        }
+    elif request.tipo_formulario == "robo-incendio":
+        table_name = "DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL"
+        fields_map = {
+            "fecha": "FECHA DEL HECHO", # Validar nombre
+            "hora": "HORA",
+            "direccion": "LUGAR DEL HECHO",
+            "relato": "RELATO DEL HECHO",
+            "tipo_hecho": "TIPO DE HECHO"
+        }
+    elif request.tipo_formulario == "robo-parcial":
+        table_name = "CARGA DENUNCIA OC (  CRISTALES, CERRADURAS, BATERIA, RUEDAS )"
+        fields_map = {
+            "fecha": "FECHA DEL HECHO",
+            "direccion": "LUGAR DEL HECHO",
+            "relato": "RELATO DEL HECHO",
+            "elemento": "ELEMENTO AFECTADO" # Validar nombre
+        }
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de formulario desconocido")
+
+    # 2. Obtener Tabla
+    table = get_table(table_name)
+    if not table:
+         raise HTTPException(status_code=500, detail=f"Tabla no encontrada: {table_name}")
+
+    # 3. Construir Payload para Airtable
+    airtable_fields = {}
+    
+    # Mapear campos dinámicos
+    # NOTA: Usamos un mapeo genérico de nombres comunes si no tenemos el exacto, 
+    # pero trataremos de usar los que vimos en el esquema.
+    
+    # Mapeos "Seguros" (comunes a casi todos, ajustar si falla)
+    # Fechas: Airtable espera YYYY-MM-DD
+    if "fecha" in request.datos:
+        airtable_fields["FECHA DEL SINIESTRO"] = request.datos["fecha"] # Nombre standarizado?
+        # Override para Robo que puede tener otro nombre
+        if request.tipo_formulario != "accidente":
+             # En metadata Robo Total tiene "FECHA DEL HECHO"? 
+             # Voy a asumir FECHA DEL SINIESTRO si no encuentro otro en el error logs
+             # Pero en Accidente es FECHA DEL SINIESTRO.
+             pass
+
+    if "hora" in request.datos:
+        # Airtable Duration o Text? En Accidente era Duration h:mm
+        # Front manda "14:30" o number? Front manda number 0-23 en Accidente.
+        # Si es number, formatear a string "HH:00"
+        val = request.datos["hora"]
+        if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+            airtable_fields["HORA APROX. DEL SINIESTRO"] = f"{int(val):02d}:00"
+        else:
+            airtable_fields["HORA APROX. DEL SINIESTRO"] = str(val)
+
+    if "direccion" in request.datos:
+        airtable_fields["LUGAR O ESTABLECIMIENTO"] = request.datos["direccion"]
+        airtable_fields["DIRECCIÓN Y N°"] = request.datos["direccion"] # Llenamos ambos por las dudas
+
+    if "relato" in request.datos:
+        # Accidente usa "RELATOS DEL HECHO"
+        if request.tipo_formulario == "accidente":
+             airtable_fields["RELATOS DEL HECHO"] = request.datos["relato"]
+        else:
+             # Robo / OC puede usar otro. Intentaremos "RELATO" o "DETALLE"
+             airtable_fields["DESCRIPCION"] = request.datos["relato"] # Generico
+             # Si falla por campo inexistente, pyairtable avisa.
+
+    # 4. Vincular Póliza (CRITICO)
+    if request.poliza_record_id:
+        airtable_fields["POLIZAS"] = [request.poliza_record_id]
+
+    # 5. Vincular Cliente (Si tenemos DNI, buscamos ID)
+    # Es mejor buscar el cliente fresco por DNI para asegurar el ID correcto
+    if request.dni:
+        dni_limpio = "".join(filter(str.isdigit, str(request.dni)))
+        t_clientes = get_table("CLIENTES")
+        if t_clientes and dni_limpio:
+            try:
+                c_records = t_clientes.all(formula=f"{{DNI}}={dni_limpio}", max_records=1)
+                if c_records:
+                    airtable_fields["CLIENTE"] = [c_records[0]["id"]]
+            except Exception as e:
+                print(f"Error vinculando cliente: {e}")
+
+    # 6. Guardar
+    try:
+        # Filtrar campos que podrían no existir para evitar error 422 estricto??
+        # Airtable API v0 devuelve error si el campo no existe.
+        # Para ser robustos, en esta fase de desarrollo rapido,
+        # podríamos hacer un 'try' con campos específicos si sabemos que varían.
+        # Por ahora enviamos lo que creemos standard.
+        
+        # Ajustes finales de nombres según Metadata leída previamente (Accidente)
+        if request.tipo_formulario == "accidente":
+            # Campos confirmados en lectura anterior
+            pass 
+            
+        print(f"Enviando a Airtable {table_name}: {airtable_fields}")
+        record = table.create(airtable_fields, typecast=True) # typecast=True ayuda con selects y fechas
+        return {"status": "success", "id": record["id"], "message": "Denuncia creada correctamente"}
+        
+    except Exception as e:
+        print(f"Error creando registro Airtable: {e}")
+        # Retornar error detallado para debug en frontend
+        raise HTTPException(status_code=500, detail=f"Error Airtable: {str(e)}")
+
+
