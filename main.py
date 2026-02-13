@@ -612,7 +612,7 @@ async def validate_siniestro(dni: str, patente: str):
     if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
         return {
             "valid": False,
-            "message": f"La póliza del vehículo {patente_limpia} figura como ANULADA o DE BAJA."
+            "message": f"La póliza del vehículo {patente_limpia} figura as ANULADA o DE BAJA."
         }
     
     # 5. Parsear toda la información de la póliza usando helper
@@ -642,7 +642,6 @@ async def validate_siniestro(dni: str, patente: str):
             print(f"Error fetching poliza details: {e}")
 
     # 7. Retornar datos completos
-    # Tomar la primera póliza parseada (debería ser el bloque correcto)
     p_data = poliza_info[0] if poliza_info else {}
 
     return {
@@ -700,17 +699,16 @@ async def get_config_formularios():
             form_id = f_rec["id"]
             
             # Filtrar campos para este formulario
-            # El campo "Formulario" en CONFIG_CAMPOS es un array de IDs [RecID]
             my_fields = []
             for c_rec in campos_records:
                 c = c_rec["fields"]
-                linked_forms = c.get("Formulario", [])
+                linked_forms = c.get("FORMULARIO") or c.get("Formulario", [])
                 if form_id in linked_forms:
                     # Mapear a estructura Frontend
                     campo_front = {
                         "id": c.get("ID CAMPO"),
                         "label": c.get("ETIQUETA"),
-                        "type": c.get("TIPO", "text"), # Fallback name
+                        "type": c.get("TIPO", "text"), 
                         "required": c.get("OBLIGATORIO", False),
                         # Opcionales
                         "placeholder": c.get("PLACEHOLDER", ""),
@@ -798,7 +796,7 @@ async def create_siniestro(request: Request):
         
         # Obtenemos los campos de este formulario
         t_campos = get_table("CONFIG_CAMPOS")
-        filter_formula = f"SEARCH('{form_id}', ARRAYJOIN({{Formulario}}))"
+        filter_formula = f"OR(SEARCH('{form_id}', ARRAYJOIN({{FORMULARIO}})), SEARCH('{form_id}', ARRAYJOIN({{Formulario}})))"
         campos_records = t_campos.all(formula=filter_formula)
         
         # Construir Mapa: ID Frontend -> Columna Airtable
