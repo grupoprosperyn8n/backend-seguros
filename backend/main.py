@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
-# Force Deploy v2
+# Force Deploy v3 - Dependencies fix
 
 # Configuración CORS
 app.add_middleware(
@@ -722,8 +722,7 @@ async def get_form_config():
                         "id": fields.get("ID Campo"),
                         "label": fields.get("Etiqueta"),
                         "type": fields.get("Tipo"),
-                        "required": fields.get("Obligatorio", False),
-                        "options": []
+                        "required": fields.get("Obligatorio", False)
                     }
                     
                     # Opciones para Selects
