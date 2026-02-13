@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
+# Force Deploy v2
 
 # Configuración CORS
 app.add_middleware(
