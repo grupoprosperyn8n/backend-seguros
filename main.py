@@ -617,7 +617,13 @@ async def validate_siniestro(dni: str, patente: str):
         }
     
     # 5. Parsear toda la información de la póliza usando helper
-    poliza_info = parse_poliza_block(bloque_match)
+    parsed_list = parse_poliza_block(bloque_match)
+    # parse_poliza_block retorna una LISTA — tomar el primer elemento
+    poliza_info = parsed_list[0] if parsed_list else {
+        "numero": "", "patente": patente_limpia, "tipo_vehiculo": "",
+        "categoria": "", "vida": False, "auxilio": False,
+        "estado": "CONSULTAR", "descripcion_completa": bloque_match
+    }
 
     # 6. Obtener Record ID de la Póliza para pre-llenado correcto en Airtable
     # El formulario requiere el ID (rec...) para vincular, no el número de texto.
@@ -706,20 +712,19 @@ async def get_config_formularios():
             my_fields = []
             for c_rec in campos_records:
                 c = c_rec["fields"]
-                linked_forms = c.get("Formulario", [])
+                linked_forms = c.get("FORMULARIO") or c.get("Formulario", [])
                 if form_id in linked_forms:
                     # Mapear a estructura Frontend
                     campo_front = {
                         "id": c.get("ID CAMPO"),
                         "label": c.get("ETIQUETA"),
-                        "type": c.get("TIPO", "text"), # Fallback name
+                        "type": c.get("TIPO", "text"),
                         "required": c.get("OBLIGATORIO", False),
                         # Opcionales
                         "placeholder": c.get("PLACEHOLDER", ""),
                         "options": c.get("OPCIONES", "").split(",") if c.get("OPCIONES") else [],
-                        "min": c.get("MIN"),
-                        "max": c.get("MAX")
                     }
+                    # NO exponer COLUMNA AIRTABLE al frontend (info interna)
                     # Limpieza de None
                     campo_front = {k: v for k, v in campo_front.items() if v is not None}
                     
@@ -789,7 +794,7 @@ async def create_siniestro(request: Request):
         # 2. Obtener Configuración Dinámica (Mapping)
         # Buscamos el formulario por Slug
         t_forms = get_table("CONFIG_FORMULARIOS")
-        params = {"filterByFormula": f"{{Slug}}='{tipo_formulario}'", "maxRecords": 1}
+        params = {"filterByFormula": f"{{CODIGO}}='{tipo_formulario}'", "maxRecords": 1}
         forms_records = t_forms.all(**params)
         
         if not forms_records:
@@ -808,7 +813,7 @@ async def create_siniestro(request: Request):
         # SEARCH('recID', ARRAYJOIN({Formulario}))
         
         # Como pyairtable filterByFormula es string:
-        filter_formula = f"SEARCH('{form_id}', ARRAYJOIN({{Formulario}}))"
+        filter_formula = f"OR(SEARCH('{form_id}', ARRAYJOIN({{FORMULARIO}})), SEARCH('{form_id}', ARRAYJOIN({{Formulario}})))"
         campos_records = t_campos.all(formula=filter_formula)
         
         # Construir Mapa: ID Frontend -> Columna Airtable
@@ -819,7 +824,7 @@ async def create_siniestro(request: Request):
         for r in campos_records:
             f = r["fields"]
             f_id = f.get("ID CAMPO")
-            col = f.get("AIRTABLE COLUMN")
+            col = f.get("COLUMNA AIRTABLE")
             f_type = f.get("TIPO")
             
             if f_id and col:
@@ -895,9 +900,9 @@ async def create_siniestro(request: Request):
             if tipo_formulario == "accidente":
                 target_table_name = "DENUNCIA DE ACCIDENTE"
             elif tipo_formulario == "robo-incendio":
-                target_table_name = "DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL"
+                target_table_name = "DENUNCIA ROBO / INCENDIO"
             elif tipo_formulario == "robo-parcial":
-                target_table_name = "CARGA DENUNCIA OC (  CRISTALES, CERRADURAS, BATERIA, RUEDAS )"
+                target_table_name = "DENUNCIA ROBO OC"
             else:
                 target_table_name = "DENUNCIAS_GENERICAS" # Ultimo recurso
         
