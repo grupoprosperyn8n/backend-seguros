@@ -773,18 +773,68 @@ const BACKEND_CREATE_SINIESTRO = `${BACKEND_URL}/api/create-siniestro`; // PROD
 let FORM_CONFIG = {};
 
 function loadFormConfig() {
-    fetch(`${BACKEND_URL}/api/config-formularios`)
-        .then(response => response.json())
-        .then(config => {
-            console.log('📝 Configuración de formularios cargada:', config);
-            FORM_CONFIG = config;
+    const primaryUrl = `${BACKEND_URL}/api/config-formularios`;
+    const fallbackUrl = 'FORM_CONFIG.json';
+
+    fetch(primaryUrl)
+        .then(response => {
+            if (!response.ok) throw new Error(`Backend Status: ${response.status}`);
+            return response.json();
         })
-        .catch(error => {
-            console.error('❌ Error cargando configuración de formularios:', error);
-            // Fallback básico si falla la carga
-            FORM_CONFIG = {}; 
-            alert('Error cargando la configuración del sistema. Por favor recarga la página.');
+        .then(config => {
+            console.log('📝 Configuración de formularios cargada (Backend):', config);
+            FORM_CONFIG = config;
+            renderDynamicMenu(); // NEW: Render menu dynamically
+        })
+        .catch(errorBackend => {
+            console.warn('⚠️ Fallo carga de Backend, intentando local...', errorBackend);
+            
+            // INTENTO DE FALLBACK
+            fetch(fallbackUrl)
+                .then(response => response.json())
+                .then(config => {
+                    console.log('📝 Configuración de formularios cargada (Local Fallback):', config);
+                    FORM_CONFIG = config;
+                    renderDynamicMenu(); // NEW: Render menu dynamically
+                })
+                .catch(errorLocal => {
+                    console.error('❌ Error total cargando configuración:', errorLocal);
+                    FORM_CONFIG = {}; 
+                    alert('Error cargando la configuración del sistema. Por favor recarga la página.');
+                });
         });
+}
+
+// NUEVO: Renderizado dinámico del menú de siniestros
+function renderDynamicMenu() {
+    const container = document.getElementById('siniestros-menu-dynamic');
+    if (!container) return;
+
+    if (Object.keys(FORM_CONFIG).length === 0) {
+        container.innerHTML = '<p style="text-align:center;">No hay tipos de denuncia disponibles.</p>';
+        return;
+    }
+
+    container.innerHTML = ''; // Limpiar loader
+
+    Object.keys(FORM_CONFIG).forEach(key => {
+        const config = FORM_CONFIG[key];
+        
+        // Detectar si es FontAwesome o Emoji/Texto
+        const iconHtml = config.icono.match(/fa-/)
+            ? `<i class="fas ${config.icono}" style="font-size: 2rem; color: ${config.color || 'var(--primary)'};"></i>`
+            : `<span style="font-size: 2rem;">${config.icono}</span>`;
+
+        const btn = document.createElement('button');
+        btn.className = 'option-card-btn animate-fade-in';
+        btn.onclick = () => seleccionarTipoSiniestro(key);
+        btn.innerHTML = `
+            ${iconHtml}
+            <span>${config.titulo}</span>
+        `;
+        
+        container.appendChild(btn);
+    });
 }
 
 function validarClienteSiniestro() {
@@ -798,309 +848,293 @@ function validarClienteSiniestro() {
     if (errorContainer) {
         errorContainer.style.display = 'none';
     }
-    
-    if (!patente || !dni) {
-        if (errorContainer){
-            errorContainer.textContent = 'Por favor completá DNI y Patente.';
-            errorContainer.style.display = 'block';
-        }
+
+    if (patente.length < 6 || dni.length < 7) {
+        mostrarErrorValidacion('Por favor revisá los datos ingresados (DNI o Patente incompletos).');
         return;
     }
-    
-    // Loading State
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...';
-    btn.disabled = true;
 
-    // Call EndPoint
-    const url = `${WEBHOOK_VALIDACION_SINIESTRO}?dni=${dni}&patente=${patente}`;
+    if(btn) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verificando...';
+        btn.disabled = true;
+    }
+
+    const url = `${WEBHOOK_VALIDACION_SINIESTRO}?patente=${patente}&dni=${dni}`;
     
     fetchWithTimeout(url)
-        .then(res => res.json().then(data => ({ status: res.status, body: data })))
-        .then(({ status, body }) => {
-            if (status !== 200 || !body.valid) {
-                throw new Error(body.message || 'Datos incorrectos');
-            }
-            return body;
-        })
+        .then(res => res.json().then(data => {
+            if (!res.ok) throw new Error(data.message || 'Error en validación');
+            return data;
+        }))
         .then(data => {
-            console.log('✅ Validación Exitosa:', data);
-            
-            // Guardar en Session para usar después
-            const sessionData = {
-                dni: dni,
-                patente: patente,
-                cliente: data.cliente,
-                poliza: data.poliza
-            };
-            sessionStorage.setItem('validacion_siniestro', JSON.stringify(sessionData));
-            
-            // Ir al paso 2: Selección de Tipo
-            mostrarSeleccionSiniestro(data);
+            if (data.valid) {
+                // Guardar datos
+                sessionStorage.setItem('validacion_siniestro', JSON.stringify({
+                    nombres: data.cliente.nombres,
+                    apellido: data.cliente.apellido,
+                    dni: dni,
+                    patente: patente,
+                    polizaRecordId: data.poliza.record_id,
+                    polizaNumero: data.poliza.numero,
+                    polizaInfo: data.poliza
+                }));
+                mostrarSeleccionSiniestro(data);
+            } else {
+                mostrarErrorValidacion(data.message || 'No logramos validar tu cobertura.');
+            }
         })
         .catch(err => {
-            console.error('❌ Error validación:', err);
-            if (errorContainer) {
-                errorContainer.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${err.message}`;
-                errorContainer.style.display = 'block';
-            }
+            console.error(err);
+            mostrarErrorValidacion('No pudimos verificar tu cobertura. Por favor intentá nuevamente.');
         })
         .finally(() => {
-            btn.innerHTML = originalText;
-            btn.disabled = false;
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Verificar Cobertura';
+                btn.disabled = false;
+            }
         });
 }
 
+function mostrarErrorValidacion(msg) {
+    const errorContainer = document.getElementById('msg-val-error-siniestro');
+    if (errorContainer) {
+        errorContainer.style.display = 'block';
+        errorContainer.innerHTML = `<strong><i class="fas fa-exclamation-circle"></i></strong> ${msg}`;
+    } else {
+        Swal.fire('Atención', msg, 'warning');
+    }
+}
+
 function mostrarSeleccionSiniestro(data) {
-    const { cliente, poliza } = data;
-    
-    // Ocultar paso 1, mostrar paso 2
     document.getElementById('step-validation-siniestro').classList.remove('active');
     document.getElementById('step-selection-siniestro').classList.add('active');
     
-    // Limpiar estado de la póliza para display (quitar emojis)
-    let estadoLimpio = poliza.estado.replace(/✅|🔴|🟢|⏳|⚠️|❌/g, '').trim();
-    
-    // Detectar coberturas extra (Vida, Auxilio)
+    // Renderizar tarjeta de bienvenida
+    const poliza = data.poliza;
+
+    // Limpiar estado para evitar duplicados visuales
+    let estadoLimpio = poliza.estado.replace(/🆘|AUX|INFINITY|❤️|VIDA|✅|⏰/g, '').trim();
+    if (!estadoLimpio) estadoLimpio = "CONSULTAR";
+
+    // Badges de Cobertura (Vida / Auxilio)
     let coverageBadges = '';
     
-    if (poliza.vida) {
+    if (poliza.vida || poliza.estado.includes('VIDA')) {
         coverageBadges += `<span class="status-badge vida"><i class="fas fa-heart"></i> VIDA</span>`;
     }
-    if (poliza.auxilio) {
+    
+    // Detectar Auxilio por flag o texto
+    if (poliza.auxilio || poliza.estado.includes('AUX')) {
         coverageBadges += `<span class="status-badge aux"><i class="fas fa-tools"></i> AUXILIO</span>`;
     }
 
-    // Renderizar Header de Bienvenida
-    const container = document.getElementById('msg-bienvenida-siniestro');
-    container.innerHTML = `
+    document.getElementById('msg-bienvenida-siniestro').innerHTML = `
         <div class="welcome-card">
-            <h4>👋 Hola, ${cliente.nombres}!</h4>
-            <p class="vehicle-info">
-                <i class="fas fa-car"></i> ${poliza.tipo_vehiculo} ${poliza.patente}
-                <br>
-                <small>${poliza.descripcion_completa}</small>
-            </p>
-            <div class="badges-container">
-                <span class="status-badge ${estadoLimpio.includes('VIGENTE') || estadoLimpio.includes('VENCE') ? 'vigente' : ''}">
-                    ${estadoLimpio || 'VIGENTE'}
-                </span>
-                ${coverageBadges}
+            <h3>👋 Hola, ${data.cliente.nombres}</h3>
+            <div class="policy-details">
+                <p><strong>${poliza.tipo_vehiculo}</strong> | ${poliza.patente}</p>
+                <p class="sub-info"><i class="fas fa-shield-alt"></i> Póliza: ${poliza.numero}</p>
+                
+                <div class="badges-container">
+                    <span class="status-badge ${estadoLimpio.includes('VIGENTE') || estadoLimpio.includes('VENCE') ? 'vigente' : ''}">
+                        ${estadoLimpio}
+                    </span>
+                </div>
+                
+                ${coverageBadges ? `<div class="badges-container coverage-group">${coverageBadges}</div>` : ''}
             </div>
         </div>
-        <p class="instruction-text">¿Qué te pasó? Seleccioná una opción:</p>
     `;
-
-    // Renderizar Opciones Dinámicamente desde FORM_CONFIG
-    // Si form_config falló, usar hardcoded o mostrar error
-    renderTypeOptions();
-}
-
-function renderTypeOptions() {
-    const grid = document.querySelector('.siniestro-options-grid');
-    if (!grid) return;
-    
-    // Si no hay config cargada, mostrar error (o reintentar load)
-    if (Object.keys(FORM_CONFIG).length === 0) {
-        grid.innerHTML = '<p class="error-text">Cargando tipos de siniestro...</p>';
-        setTimeout(() => {
-             // Retry once
-             loadFormConfig();
-             // If still empty, show hard error
-             if (Object.keys(FORM_CONFIG).length === 0) {
-                 grid.innerHTML = '<p class="error-text">Error cargando opciones. Reintentá.</p>';
-                 // Fallback Hardcoded could go here
-             } else {
-                 renderTypeOptions();
-             }
-        }, 2000);
-        return;
-    }
-
-    const html = Object.keys(FORM_CONFIG).map(slug => {
-        const form = FORM_CONFIG[slug];
-        return `
-            <div class="siniestro-option-card" onclick="seleccionarTipoSiniestro('${slug}')" style="border-left: 4px solid ${form.color}">
-                <div class="icon-circle" style="background: ${form.color}20; color: ${form.color}">
-                    <i class="fas ${form.icono}"></i>
-                </div>
-                <span>${form.titulo}</span>
-            </div>
-        `;
-    }).join('');
-    
-    grid.innerHTML = html;
 }
 
 function seleccionarTipoSiniestro(tipo) {
-    if (!FORM_CONFIG[tipo]) {
-        alert('Error: Tipo de formulario no encontrado');
-        return;
-    }
-    
-    // Guardar selección
-    const sessionData = JSON.parse(sessionStorage.getItem('validacion_siniestro') || '{}');
-    sessionData.tipo = tipo;
-    sessionStorage.setItem('validacion_siniestro', JSON.stringify(sessionData));
-    
-    // Renderizar Formulario
-    renderDynamicForm(tipo);
-    
-    // Transición UI
+    const config = FORM_CONFIG[tipo];
+    if (!config) return;
+
+    // 1. Ocultar pasos anteriores
     document.getElementById('step-selection-siniestro').classList.remove('active');
-    document.getElementById('step-form-siniestro').classList.add('active');
-}
+    const stepForm = document.getElementById('step-form-siniestro');
+    stepForm.classList.add('active');
 
-function renderDynamicForm(tipo) {
-    const config = FORM_CONFIG[tipo];
-    const container = document.getElementById('dynamic-form-container');
-    const title = document.getElementById('dynamic-form-title');
+    // 2. Renderizar Formulario dinámico
+    const validationData = JSON.parse(sessionStorage.getItem('validacion_siniestro') || '{}');
+    const container = document.getElementById('iframe-wrapper-siniestro'); // Reusamos este ID por conveniencia
     
-    // Set Header
-    title.innerHTML = `<i class="fas ${config.icono}" style="color: ${config.color}"></i> ${config.titulo}`;
-    
-    // Build Fields
-    // Usamos el array "campos" que viene del backend
-    
-    let fieldsHTML = '';
-    
-    if (!config.campos || config.campos.length === 0) {
-        fieldsHTML = '<p>Error: Este formulario no tiene campos configurados.</p>';
-    } else {
-        fieldsHTML = config.campos.map(field => {
-            const requiredAttr = field.required ? 'required' : '';
-            const minAttr = field.min !== undefined ? `min="${field.min}"` : '';
-            const maxAttr = field.max !== undefined ? `max="${field.max}"` : '';
-            const placeholder = field.placeholder ? `placeholder="${field.placeholder}"` : '';
+    container.innerHTML = `
+        <div class="custom-form-container">
+            <div class="form-header" style="border-left: 4px solid ${config.color}">
+                <h2>
+                    ${config.icono.match(/fa-/) 
+                        ? `<i class="fas ${config.icono}"></i>` 
+                        : `<span style="font-style: normal;">${config.icono}</span>`
+                    } 
+                    ${config.titulo}
+                </h2>
+                <p>Completá los detalles de lo sucedido</p>
+            </div>
             
-            let inputHTML = '';
-            
-            switch (field.type) {
-                case 'textarea':
-                case 'multilineText':
-                    inputHTML = `<textarea id="field-${field.id}" name="${field.id}" rows="4" ${requiredAttr} ${placeholder}></textarea>`;
-                    break;
-                    
-                case 'select':
-                case 'singleSelect':
-                    const options = (field.options || []).map(opt => `<option value="${opt}">${opt}</option>`).join('');
-                    inputHTML = `
-                        <select id="field-${field.id}" name="${field.id}" ${requiredAttr}>
-                            <option value="" disabled selected>Seleccioná una opción...</option>
-                            ${options}
-                        </select>
-                        <i class="fas fa-chevron-down select-arrow"></i>
-                    `;
-                    break;
-                    
-                case 'date':
-                    inputHTML = `<input type="date" id="field-${field.id}" name="${field.id}" ${requiredAttr}>`;
-                    break;
-                    
-                case 'time':
-                    inputHTML = `<input type="time" id="field-${field.id}" name="${field.id}" ${requiredAttr}>`;
-                    break;
-                    
-                case 'number':
-                    inputHTML = `<input type="number" id="field-${field.id}" name="${field.id}" ${minAttr} ${maxAttr} ${requiredAttr} ${placeholder}>`;
-                    break;
-                case 'checkbox':
-                    inputHTML = `
-                        <label class="checkbox-container">
-                            <input type="checkbox" id="field-${field.id}" name="${field.id}" ${requiredAttr}>
-                            <span class="checkmark"></span>
-                            ${field.label}
-                        </label>
-                    `;
-                    // Label handleado distinto en checkbox
-                    return `<div class="form-group checkbox-group">${inputHTML}</div>`;
+            <form id="dynamic-siniestro-form" class="animate-fade-in">
+                <!-- Campos ocultos de contexto -->
+                <input type="hidden" name="tipo_formulario" value="${tipo}">
+                <input type="hidden" name="poliza_record_id" value="${validationData.polizaRecordId || ''}">
+                <input type="hidden" name="patente" value="${validationData.patente || ''}">
+                <input type="hidden" name="dni" value="${validationData.dni || ''}">
 
-                default: // text, singleLineText, email, url, phone, etc.
-                    let inputType = 'text';
-                    if (field.type === 'email') inputType = 'email';
-                    if (field.type === 'phoneNumber') inputType = 'tel';
-                    
-                    inputHTML = `<input type="${inputType}" id="field-${field.id}" name="${field.id}" ${requiredAttr} ${placeholder}>`;
-            }
-            
-            return `
-                <div class="form-group">
-                    <label for="field-${field.id}">${field.label} ${field.required ? '*' : ''}</label>
-                    ${inputHTML}
+                ${config.campos.map(campo => renderCampo(campo)).join('')}
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-submit" style="background: ${config.color}">
+                        Enviar Denuncia <i class="fas fa-paper-plane"></i>
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="volverSeleccionSiniestro()">
+                        Cancelar
+                    </button>
                 </div>
-            `;
-        }).join('');
-    }
-    
-    container.innerHTML = fieldsHTML;
+            </form>
+        </div>
+    `;
+
+    // 3. Bindear evento submit
+    document.getElementById('dynamic-siniestro-form').addEventListener('submit', handleSiniestroSubmit);
 }
 
-// Enviar Formulario Final
-function submitDynamicForm(e) {
+function renderCampo(campo) {
+    let inputHtml = '';
+    
+    switch(campo.type) {
+        case 'file':
+            inputHtml = `
+                <input type="file" id="${campo.id}" name="${campo.id}" 
+                    ${campo.required ? 'required' : ''} 
+                    class="form-input" accept="image/*" multiple>
+                <small style="color: #ccc; display: block; margin-top: 5px;">Podés subir varias fotos</small>
+            `;
+            break;
+        case 'select':
+            const options = campo.options || [];
+            inputHtml = `
+                <select id="${campo.id}" name="${campo.id}" 
+                    ${campo.required ? 'required' : ''} 
+                    class="form-input">
+                    <option value="">-- Seleccioná --</option>
+                    ${options.map(opt => `<option value="${opt.trim()}">${opt.trim()}</option>`).join('')}
+                </select>
+            `;
+            break;
+        case 'textarea':
+            inputHtml = `
+                <textarea id="${campo.id}" name="${campo.id}" 
+                    ${campo.required ? 'required' : ''} 
+                    class="form-input" rows="4" 
+                    placeholder="${campo.placeholder || 'Describí lo sucedido con el mayor detalle posible...'}"></textarea>
+            `;
+            break;
+        default: // text, date, number, time...
+            inputHtml = `
+                <input type="${campo.type}" id="${campo.id}" name="${campo.id}" 
+                    ${campo.required ? 'required' : ''} 
+                    class="form-input" placeholder="${campo.placeholder || ''}">
+            `;
+    }
+
+    return `
+        <div class="form-group-dynamic">
+            <label for="${campo.id}">${campo.label} ${campo.required ? '<span class="req">*</span>' : ''}</label>
+            ${inputHtml}
+        </div>
+    `;
+}
+
+async function handleSiniestroSubmit(e) {
     e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
     
-    const btn = document.getElementById('btn-submit-dynamic');
-    const originalText = btn.innerHTML;
-    
-    // 1. Recopilar Datos
-    const sessionData = JSON.parse(sessionStorage.getItem('validacion_siniestro') || '{}');
-    const tipo = sessionData.tipo;
-    const config = FORM_CONFIG[tipo];
-    
-    if (!config) {
-        alert("Error de configuración de formulario.");
-        return;
-    }
-
-    const formData = {
-        tipo_siniestro: tipo,
-        cliente: sessionData.cliente,
-        poliza: sessionData.poliza,
-        datos: {}
-    };
-    
-    // Iterar campos para sacar valores
-    let isValid = true;
-    config.campos.forEach(field => {
-        const el = document.getElementById(`field-${field.id}`);
-        if (!el) return;
-        
-        if (field.type === 'checkbox') {
-             formData.datos[field.label] = el.checked ? 'SI' : 'NO';
-        } else {
-             formData.datos[field.label] = el.value;
-             if (field.required && !el.value) isValid = false;
-        }
-    });
-
-    if (!isValid) {
-        alert("Por favor completá todos los campos obligatorios.");
-        return;
-    }
-
-    // 2. Enviar a Backend
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+    // UI Loading
+    const originalBtnContent = btn.innerHTML;
     btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+
+    // Recolectar datos
+    const formData = new FormData(form);
     
-    console.log("📤 Enviando Siniestro:", formData);
+    // Preparar Payload Multipart
+    const payload = new FormData();
+    const datos = {};
+    const standardFields = ['tipo_formulario', 'poliza_record_id', 'dni', 'patente'];
+    const fileFields = []; // Detectaremos cuales son archivos
+
+    // Iteramos entradas una sola vez
+    // Nota: formData.entries() puede devolver duplicados para multiples archivos con mismo nombre
+    // Pero File objects son instancias de File.
     
-    fetchWithTimeout(BACKEND_CREATE_SINIESTRO, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-    })
-    .then(res => res.json())
-    .then(data => {
-        console.log("✅ Siniestro Creado:", data);
-        alert("¡Denuncia enviada con éxito! Te contactaremos a la brevedad.");
-        closeModal('siniestro');
-    })
-    .catch(err => {
-        console.error("❌ Error enviando:", err);
-        alert("Hubo un error al enviar la denuncia. Por favor intentá nuevamente o contactanos por WhatsApp.");
-    })
-    .finally(() => {
-        btn.innerHTML = originalText;
+    // Estrategia:
+    // 1. Campos standard -> directo a payload
+    // 2. Archivos -> directo a payload
+    // 3. Resto -> al objeto 'datos'
+    
+    // Para manejar multiples archivos correctamente, no podemos usar Object.fromEntries ciegamente
+    
+    for (const [key, value] of formData.entries()) {
+        if (standardFields.includes(key)) {
+            payload.append(key, value);
+        } else if (value instanceof File && value.name) {
+            // Es un archivo real (si no tiene nombre suele ser input vacio, pero checkear size > 0)
+            if (value.size > 0) {
+                payload.append(key, value);
+            }
+        } else {
+            // Es un dato del formulario (texto, fecha, etc)
+            datos[key] = value;
+        }
+    }
+    
+    // Adjuntar JSON de datos
+    payload.append('datos', JSON.stringify(datos));
+
+    try {
+        console.log("📨 Enviando payload Multipart...");
+
+        // Fetch NO lleva Content-Type header manualmente cuando es FormData, 
+        // el navegador lo pone con el boundary correcto.
+        const response = await fetchWithTimeout(BACKEND_CREATE_SINIESTRO, {
+            method: 'POST',
+            body: payload
+        });
+        
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Error al enviar formulario');
+        }
+       
+        // ÉXITO
+        console.log("✅ Siniestro creado:", data);
+
+        Swal.fire({
+            icon: 'success',
+            title: '¡Denuncia Recibida!',
+            text: 'Hemos recibido los datos y tu número de gestión es #' + (data.id || 'N/A') + '. Un asesor procesará tu denuncia y te contactará a la brevedad.',
+            confirmButtonColor: '#4ade80'
+        }).then(() => {
+            location.reload(); // Reiniciar flujo
+        });
+
+    } catch (error) {
+        console.error("❌ Error envio siniestro:", error);
+        Swal.fire('Error', `No pudimos enviar la denuncia: ${error.message || 'Error de conexión'}`, 'error');
         btn.disabled = false;
-    });
+        btn.innerHTML = originalBtnContent;
+    }
+}
+
+function volverValidacionSiniestro() {
+    document.getElementById('step-selection-siniestro').classList.remove('active');
+    document.getElementById('step-validation-siniestro').classList.add('active');
+}
+
+function volverSeleccionSiniestro() {
+    document.getElementById('step-form-siniestro').classList.remove('active');
+    document.getElementById('iframe-wrapper-siniestro').innerHTML = ''; // Limpiar form
+    document.getElementById('step-selection-siniestro').classList.add('active');
 }
