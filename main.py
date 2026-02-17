@@ -3,7 +3,7 @@ import random
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Form, Request
+from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Form
 import json
 try:
     from .drive_service import upload_file_to_drive
@@ -287,7 +287,7 @@ async def get_testimonios():
         return {"testimonios": [], "total": 0, "mensaje": "Sin testimonios disponibles"}
 
     # Procesar registros y separar por fecha y calificación
-    # now = datetime.now().astimezone() # Aware
+    now = datetime.now().astimezone() # Aware
     cutoff_90d = datetime.now().timestamp() - (90 * 24 * 60 * 60) # Timestamp comparison logic easier
     
     pool_recent_good = []
@@ -477,6 +477,7 @@ async def save_rating(data: RatingRequest):
     client_linked = False
     
     # Intentar vincular cliente
+    # Intentar vincular cliente
     if data.es_cliente == "Sí" and data.dni:
         # Por defecto asumimos 'No' hasta encontrarlo (Lógica N8N)
         fields["ES_CLIENTE"] = "No" 
@@ -612,13 +613,20 @@ async def validate_siniestro(dni: str, patente: str):
     if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
         return {
             "valid": False,
-            "message": f"La póliza del vehículo {patente_limpia} figura as ANULADA o DE BAJA."
+            "message": f"La póliza del vehículo {patente_limpia} figura como ANULADA o DE BAJA."
         }
     
     # 5. Parsear toda la información de la póliza usando helper
-    poliza_info = parse_poliza_block(bloque_match)
+    parsed_list = parse_poliza_block(bloque_match)
+    # parse_poliza_block retorna una LISTA — tomar el primer elemento
+    poliza_info = parsed_list[0] if parsed_list else {
+        "numero": "", "patente": patente_limpia, "tipo_vehiculo": "",
+        "categoria": "", "vida": False, "auxilio": False,
+        "estado": "CONSULTAR", "descripcion_completa": bloque_match
+    }
 
     # 6. Obtener Record ID de la Póliza para pre-llenado correcto en Airtable
+    # El formulario requiere el ID (rec...) para vincular, no el número de texto.
     record_id_poliza = None
     ids_polizas = cliente.get("POLIZAS", [])
     
@@ -627,10 +635,13 @@ async def validate_siniestro(dni: str, patente: str):
             table_polizas = get_table("POLIZAS")
             if table_polizas:
                 # Iteramos las pólizas del cliente para encontrar la que coincide con la patente
+                # Esto es más seguro que buscar en toda la tabla
                 for pid in ids_polizas:
                     try:
                         pol_record = table_polizas.get(pid)
                         fields_p = pol_record["fields"]
+                        # Buscamos patente en campos clave o etiqueta
+                        # Usamos representación string de campos para asegurar match
                         str_fields = str(fields_p.values()).upper()
                         
                         if patente_limpia in str_fields:
@@ -642,8 +653,6 @@ async def validate_siniestro(dni: str, patente: str):
             print(f"Error fetching poliza details: {e}")
 
     # 7. Retornar datos completos
-    p_data = poliza_info[0] if poliza_info else {}
-
     return {
         "valid": True,
         "cliente": {
@@ -651,15 +660,15 @@ async def validate_siniestro(dni: str, patente: str):
             "apellido": cliente.get("APELLIDO", ""),
         },
         "poliza": {
-            "record_id": record_id_poliza,
-            "numero": p_data.get("numero", ""),
-            "patente": p_data.get("patente", ""),
-            "tipo_vehiculo": p_data.get("tipo_vehiculo", ""),
-            "categoria": p_data.get("categoria", ""),
-            "vida": p_data.get("vida", False),
-            "auxilio": p_data.get("auxilio", False),
-            "estado": p_data.get("estado", ""),
-            "descripcion_completa": p_data.get("descripcion_completa", "")
+            "record_id": record_id_poliza, # ID para Linked Record
+            "numero": poliza_info["numero"],
+            "patente": poliza_info["patente"],
+            "tipo_vehiculo": poliza_info["tipo_vehiculo"],
+            "categoria": poliza_info["categoria"],
+            "vida": poliza_info["vida"],
+            "auxilio": poliza_info["auxilio"],
+            "estado": poliza_info["estado"],
+            "descripcion_completa": poliza_info["descripcion_completa"]
         }
     }
 
@@ -699,6 +708,7 @@ async def get_config_formularios():
             form_id = f_rec["id"]
             
             # Filtrar campos para este formulario
+            # El campo "Formulario" en CONFIG_CAMPOS es un array de IDs [RecID]
             my_fields = []
             for c_rec in campos_records:
                 c = c_rec["fields"]
@@ -708,14 +718,13 @@ async def get_config_formularios():
                     campo_front = {
                         "id": c.get("ID CAMPO"),
                         "label": c.get("ETIQUETA"),
-                        "type": c.get("TIPO", "text"), 
+                        "type": c.get("TIPO", "text"),
                         "required": c.get("OBLIGATORIO", False),
                         # Opcionales
                         "placeholder": c.get("PLACEHOLDER", ""),
                         "options": c.get("OPCIONES", "").split(",") if c.get("OPCIONES") else [],
-                        "min": c.get("MIN"),
-                        "max": c.get("MAX")
                     }
+                    # NO exponer COLUMNA AIRTABLE al frontend (info interna)
                     # Limpieza de None
                     campo_front = {k: v for k, v in campo_front.items() if v is not None}
                     
@@ -783,8 +792,8 @@ async def create_siniestro(request: Request):
              raise HTTPException(status_code=400, detail="JSON de datos inválido")
 
         # 2. Obtener Configuración Dinámica (Mapping)
+        # Buscamos el formulario por CODIGO
         t_forms = get_table("CONFIG_FORMULARIOS")
-        # Cambio a CODIGO en lugar de Slug
         params = {"filterByFormula": f"{{CODIGO}}='{tipo_formulario}'", "maxRecords": 1}
         forms_records = t_forms.all(**params)
         
@@ -796,17 +805,23 @@ async def create_siniestro(request: Request):
         
         # Obtenemos los campos de este formulario
         t_campos = get_table("CONFIG_CAMPOS")
+        # Filtramos por el Link al Formulario
+        # Formula: ver si el ID del form esta en el array de links.
+        # SEARCH('recID', ARRAYJOIN({FORMULARIO}))
+        
+        # Como pyairtable filterByFormula es string:
         filter_formula = f"OR(SEARCH('{form_id}', ARRAYJOIN({{FORMULARIO}})), SEARCH('{form_id}', ARRAYJOIN({{Formulario}})))"
         campos_records = t_campos.all(formula=filter_formula)
         
         # Construir Mapa: ID Frontend -> Columna Airtable
+        # { "foto_dni": "FOTO DNI", "fecha": "FECHA DEL SINIESTRO", ... }
         field_map = {}
-        file_fields = [] 
+        file_fields = [] # Lista de IDs que son archivos
         
         for r in campos_records:
             f = r["fields"]
             f_id = f.get("ID CAMPO")
-            col = f.get("AIRTABLE COLUMN")
+            col = f.get("COLUMNA AIRTABLE")
             f_type = f.get("TIPO")
             
             if f_id and col:
@@ -817,16 +832,24 @@ async def create_siniestro(request: Request):
         # 3. Mapear Datos (JSON) -> Airtable Fields
         airtable_payload = {}
         
+        # Datos JSON explicitos
         for key, value in datos_dict.items():
             if key in field_map:
                 col_name = field_map[key]
                 airtable_payload[col_name] = value
                 
         # 4. Procesar Archivos
+        # Iteramos los keys del form_data que coincidan con campos de archivo
+        # Nota: form_data.getlist(key) devuelve lista de UploadFile
+        
+        # Cache de subidas para no subir 2 veces si el mismo archivo llega por algun motivo (raro)
+        
         for f_id in file_fields:
             if f_id in form_data:
+                # Puede ser uno o varios archivos (getlist)
                 archivos = form_data.getlist(f_id)
-                urls_adjuntos = [] 
+                
+                urls_adjuntos = [] # Formato para Airtable: [{"url": "..."}]
                 
                 for archivo in archivos:
                     if isinstance(archivo, UploadFile):
@@ -837,14 +860,17 @@ async def create_siniestro(request: Request):
                 
                 if urls_adjuntos:
                     col_name = field_map[f_id]
+                    # Append si ya existe (ej: multi-upload en chunks), pero aqui es todo junto
                     if col_name in airtable_payload:
+                        # Si ya habia algo (raro en este flujo), extendemos
                          current = airtable_payload[col_name]
                          if isinstance(current, list):
                              current.extend(urls_adjuntos)
                     else:
                         airtable_payload[col_name] = urls_adjuntos
 
-        # 5. Vinculaciones
+        # 5. Vinculaciones (Poliza y Cliente) - Mantenemos lógica hardcoded/híbrida
+        # porque estos no vienen del config dinamico generalmente, son del contexto
         if poliza_record_id:
             airtable_payload["POLIZAS"] = [poliza_record_id]
             
@@ -860,20 +886,24 @@ async def create_siniestro(request: Request):
                     print(f"Error vinculando cliente: {e}")
 
         # 6. Guardar en Airtable
+        # Estrategia Dinámica: Leer "TABLA RELACIONADA" de la configuración
+        # Fallback: Hardcoded por si la config es vieja o incompleta
+        
         target_table_name = form_record["fields"].get("TABLA RELACIONADA")
 
         if not target_table_name:
+            # Lógica Legacy (Fallback)
             print("⚠️ Usando Fallback de Tabla (No definido en Config)")
             if tipo_formulario == "accidente":
                 target_table_name = "DENUNCIA DE ACCIDENTE"
             elif tipo_formulario == "robo-incendio":
-                target_table_name = "DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL"
+                target_table_name = "DENUNCIA ROBO / INCENDIO"
             elif tipo_formulario == "robo-parcial":
-                target_table_name = "CARGA DENUNCIA OC (  CRISTALES, CERRADURAS, BATERIA, RUEDAS )"
+                target_table_name = "DENUNCIA ROBO OC"
             else:
-                target_table_name = "DENUNCIAS_GENERICAS" 
+                target_table_name = "DENUNCIAS_GENERICAS" # Ultimo recurso
         
-        print(f"Enviando a Airtable {target_table_name}: {json.dumps(airtable_payload, default=str)}") 
+        print(f"Enviando a Airtable {target_table_name}: {json.dumps(airtable_payload, default=str)}") # Log seguro
         
         target_table = get_table(target_table_name)
         record = target_table.create(airtable_payload, typecast=True)
@@ -884,3 +914,5 @@ async def create_siniestro(request: Request):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
