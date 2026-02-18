@@ -59,27 +59,47 @@ class RatingRequest(BaseModel):
 def parse_poliza_block(bloque_texto: str) -> list:
     """
     Parsea un bloque de ETIQUETA_POLIZA y extrae toda la información.
-    Soporta múltiples pólizas concatenadas separandolas por emojis de estado.
-    Retorna una LISTA de diccionarios con la info de cada poliiza encontrada.
+    Soporta múltiples pólizas concatenadas separandolas por emojis de estado o palabras clave.
+    Estrategia: Dividir por '|' y reagrupar lógicamente.
     """
     import re
-    
+
     # 1. Limpieza inicial
     if not bloque_texto:
         return []
 
-    # 2. Estrategia de Split: Dividir por emojis de estado que marcan el inicio de un bloque
-    SEPARATORS_PATTERN = r'(?=[✅🔴🟢⏳⚠️❌])' 
+    # 2. Tokenizar por tubería '|'
+    parts = [p.strip() for p in bloque_texto.split("|")]
+    bloques_reconstruidos = []
+    current_bloque = []
     
-    posibles_bloques = re.split(SEPARATORS_PATTERN, bloque_texto)
-    bloques = [b.strip() for b in posibles_bloques if b.strip()]
+    # Emojis/Keywords que marcan inicio de poliza (heurística)
+    emojis_inicio = ["✅", "❌", "⏳", "⚠️", "🟢", "🔴", "🟣", "⭕"]
+    keywords_inicio = ["VIGENTE", "VENCE", "ANULADA", "BAJA", "ACTIVA", "SIN VIGENCIA", "SIN POLIZAS", "TRAMITES"]
 
-    if not bloques:
-        bloques = [bloque_texto]
+    for part in parts:
+        part_upper = part.upper()
+        # Es inicio si tiene emoji de estado Y palabras clave de estado
+        tiene_emoji = any(e in part for e in emojis_inicio)
+        tiene_keyword = any(k in part_upper for k in keywords_inicio)
+        
+        es_inicio = tiene_emoji and tiene_keyword
+        
+        # Caso especial: Si es el primer fragmento, empieza bloque
+        if not current_bloque:
+            current_bloque.append(part)
+        elif es_inicio:
+            bloques_reconstruidos.append(" | ".join(current_bloque))
+            current_bloque = [part]
+        else:
+            current_bloque.append(part)
+            
+    if current_bloque:
+        bloques_reconstruidos.append(" | ".join(current_bloque))
 
     parsed_policies = []
     
-    for bloque in bloques:
+    for bloque in bloques_reconstruidos:
         p_info = {
             "numero": "",
             "patente": "",
@@ -91,32 +111,61 @@ def parse_poliza_block(bloque_texto: str) -> list:
             "descripcion_completa": bloque
         }
         
-        match = re.search(r'N°\s*POL:?\s*(\d+)', bloque, re.IGNORECASE)
+        # Extraer N POL — usar [0-9] en vez de d, [ ] en vez de s
+        match = re.search(r'N[°][ ]*POL[:]?[ ]*([0-9]+)', bloque, re.IGNORECASE)
+        if not match:
+            # Fallback: buscar cualquier secuencia de 5+ digitos como numero de poliza pero evitar patentes numericas largas (raro)
+            match = re.search(r'([0-9]{5,})', bloque)
         if match:
             p_info["numero"] = match.group(1)
         
-        match = re.search(r'🏷️\s*([A-Z0-9]+)', bloque, re.IGNORECASE)
-        if match:
-            p_info["patente"] = match.group(1).upper()
+        # Extraer Patente con emoji
+        # Intentamos capturar lo que sigue al emoji de etiqueta
+        match = re.search(r'🏷️?[ ]*([A-Z]{2,3}[0-9]{3}[A-Z]{0,2}|[A-Z0-9]{6,9})', bloque, re.IGNORECASE)
+        # Refinamiento: Si hay un emoji "🏷️" explícito, tomamos lo que sigue
+        match_explicit = re.search(r'🏷️[ ]*([A-Z0-9]+)', bloque, re.IGNORECASE)
         
-        match = re.search(r'[🚗🚙🚛🏍️]\s+([A-ZÁ-Ú]+)', bloque)
+        if match_explicit:
+             p_info["patente"] = match_explicit.group(1).upper()
+        elif match:
+             # Validación extra para evitar falsos positivos
+             posible_patente = match.group(1).upper()
+             # Patentes argentinas viejas (AAA123) o nuevas (AA123BB) o motos (A123BCD)
+             # Evitar capturar cosas como "VENCE" o "POL" si el regex es muy laxo
+             if len(posible_patente) >= 6 and not posible_patente.startswith("POL"):
+                 p_info["patente"] = posible_patente
+        
+        # Extraer Tipo de vehiculo con emoji auto/moto/camion
+        match = re.search(r'[🚗🚙🚛🏍️][ ]+([A-ZÁ-Ú]+)', bloque)
         if match:
             tipo = match.group(1).strip()
             if len(tipo) > 2 and tipo not in ["POL"]: 
                 p_info["tipo_vehiculo"] = tipo
-            
-        if "ANULADA" in bloque:
-            p_info["estado"] = "ANULADA"
-        elif "VIGENTE" in bloque:
-            p_info["estado"] = "VIGENTE"
         
-        match_vence = re.search(r'(VENCE\s*\d+D?)', bloque)
+        # Si no encontro tipo, buscar palabras clave comunes
+        if not p_info["tipo_vehiculo"]:
+            for tipo_clave in ["AUTOMOVIL", "AUTO", "CAMIONETA", "MOTO", "CAMION", "UTILITARIO", "PICK UP", "PICKUP"]:
+                if tipo_clave in bloque.upper():
+                    p_info["tipo_vehiculo"] = tipo_clave
+                    break
+            
+        # Extraer Estado
+        bloque_upper = bloque.upper()
+        if "ANULADA" in bloque_upper:
+            p_info["estado"] = "ANULADA"
+        elif "VIGENTE" in bloque_upper:
+            p_info["estado"] = "VIGENTE"
+        elif "SIN VIGENCIA" in bloque_upper:
+             p_info["estado"] = "SIN VIGENCIA"
+        
+        match_vence = re.search(r'(VENCE[ ]*[0-9]+[D]?)', bloque_upper)
         if match_vence:
             p_info["estado"] = match_vence.group(1)
         
-        if "VIDA: SI" in bloque or "❤️ VIDA" in bloque:
+        # Extras: Vida y Auxilio
+        if "VIDA: SI" in bloque_upper or "❤️ VIDA" in bloque or "VIDA" in bloque_upper:
             p_info["vida"] = True
-        if "AUX" in bloque or "🆘" in bloque or "🔧" in bloque:
+        if "AUX" in bloque_upper or "🆘" in bloque or "🔧" in bloque:
             p_info["auxilio"] = True
             
         parsed_policies.append(p_info)
@@ -142,6 +191,8 @@ async def validar_cliente(dni: str, patente: str):
     if not table_clientes:
         raise HTTPException(status_code=500, detail="Airtable config missing")
 
+    # 1. Buscar Cliente por DNI
+    # Fórmula: ({DNI} & "") = "12345678"
     formula = f"({{DNI}} & \"\") = \"{dni}\""
     try:
         records = table_clientes.all(formula=formula, max_records=1)
@@ -159,19 +210,23 @@ async def validar_cliente(dni: str, patente: str):
     cliente = records[0]["fields"]
     nombre_completo = cliente.get("NOMBRE COMPLETO") or cliente.get("NOMBRES") or "Cliente"
     
+    # 2. Obtener compilación de pólizas (Lookup)
     compilacion = cliente.get("ETIQUETA_POLIZA Compilación (de POLIZAS)", [])
     
+    # Manejar si es string o lista
     texto_polizas = ""
     if isinstance(compilacion, list):
         texto_polizas = " ".join([str(x) for x in compilacion])
     else:
         texto_polizas = str(compilacion or "")
 
+    # 3. Parsear INTELIGENTEMENTE todas las pólizas
     polizas_encontradas = parse_poliza_block(texto_polizas)
     
     patente_buscada = patente.upper().strip()
     poliza_match = None
     
+    # Buscar la póliza específica
     for p in polizas_encontradas:
         if p["patente"] == patente_buscada:
             poliza_match = p
@@ -184,6 +239,7 @@ async def validar_cliente(dni: str, patente: str):
             "message": f"Hola {nombre_completo}, no encontramos el vehículo patente {patente_buscada} asociado a tu DNI."
         }
 
+    # 4. Verificar estado (ANULADA/BAJA)
     estado_poliza = poliza_match.get("estado", "").upper()
     if "ANULADA" in estado_poliza or "BAJA" in estado_poliza:
          return {
@@ -192,11 +248,13 @@ async def validar_cliente(dni: str, patente: str):
             "message": f"La póliza del vehículo {patente_buscada} figura como ANULADA o DE BAJA."
         }
 
+    # Limpieza de descripción (quitar emojis al inicio si existen)
     descripcion = poliza_match.get("descripcion_completa", "").strip()
     for char in ["✅", "⏳", "❌", "⚠️"]:
         descripcion = descripcion.replace(char, "")
     descripcion = descripcion.strip()
 
+    # 5. Obtener Record ID de la Póliza (Crucial para Airtable Linked Record)
     record_id_poliza = None
     ids_polizas = cliente.get("POLIZAS", [])
     
@@ -204,10 +262,13 @@ async def validar_cliente(dni: str, patente: str):
         try:
             table_polizas = get_table("POLIZAS")
             if table_polizas:
+                # Iteramos las pólizas del cliente para encontrar la que coincide con la patente
+                # Esto es necesario porque el ID no está en el string compilado
                 for pid in ids_polizas:
                     try:
                         pol_record = table_polizas.get(pid)
                         fields_p = pol_record["fields"]
+                        # Buscamos patente en campos clave o etiqueta
                         str_fields = str(fields_p.values()).upper()
                         
                         if patente_buscada in str_fields:
@@ -253,6 +314,8 @@ async def get_testimonios():
     if not table_calif:
         raise HTTPException(status_code=500, detail="Airtable config missing")
 
+    # Fórmula: Visible=True, Autoriza=True, Comentario!=''
+    # Traemos TODO (sin filtro de fecha en API) para poder hacer el fallback
     formula = "AND({VISIBLE}=TRUE(), {AUTORIZA_PUBLICAR}=TRUE(), {COMENTARIO}!='')"
     
     try:
@@ -264,27 +327,32 @@ async def get_testimonios():
     if not records:
         return {"testimonios": [], "total": 0, "mensaje": "Sin testimonios disponibles"}
 
-    now = datetime.now().astimezone()
-    cutoff_90d = datetime.now().timestamp() - (90 * 24 * 60 * 60)
+    # Procesar registros y separar por fecha y calificación
+    now = datetime.now().astimezone() # Aware
+    cutoff_90d = datetime.now().timestamp() - (90 * 24 * 60 * 60) # Timestamp comparison logic easier
     
     pool_recent_good = []
     pool_recent_bad = []
     pool_old_good = []
     pool_old_bad = []
 
-    formatted_map = {}
+    formatted_map = {} # ID -> Formatted Dict
 
     for r in records:
         f = r["fields"]
         stars = f.get("ESTRELLAS", 0)
         
+        # Parse Date
         date_str = f.get("FECHA DE CREACION") or r.get("createdTime")
         is_recent = False
         
+        # Intentar parsear fecha
         try:
+            # ISO format from Airtable: 2023-10-25T12:00:00.000Z
             dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
             is_recent = dt.timestamp() >= cutoff_90d
             
+            # Texto relativo
             delta = datetime.now(dt.tzinfo) - dt
             days = delta.days
             if days == 0: texto_tiempo = "Hoy"
@@ -296,8 +364,10 @@ async def get_testimonios():
             texto_tiempo = "Reciente"
             is_recent = False 
 
+        # Formatear
         nombre = f.get("NOMBRE", "Anónimo")
         
+        # Iniciales
         partes = nombre.strip().split()
         if partes:
             iniciales = (partes[0][0] + (partes[-1][0] if len(partes) > 1 else "")).upper()
@@ -322,6 +392,7 @@ async def get_testimonios():
         
         formatted_map[r["id"]] = item
         
+        # Clasificar
         if stars >= 3:
             if is_recent: pool_recent_good.append(item)
             else: pool_old_good.append(item)
@@ -329,6 +400,7 @@ async def get_testimonios():
             if is_recent: pool_recent_bad.append(item)
             else: pool_old_bad.append(item)
 
+    # Shuffle pools
     random.shuffle(pool_recent_good)
     random.shuffle(pool_recent_bad)
     random.shuffle(pool_old_good)
@@ -336,28 +408,38 @@ async def get_testimonios():
 
     final_selection = []
     
+    # Objetivo: 7 Buenos, 3 Malos/Otros
     target_good = 7
     target_bad = 3
     
+    # 1. Fill Bad (30%)
+    # - Try Recent Bad
     take_bad = pool_recent_bad[:target_bad]
     final_selection.extend(take_bad)
     needed_bad = target_bad - len(take_bad)
     
     if needed_bad > 0:
+        # - Fallback to Old Bad
         take_bad_old = pool_old_bad[:needed_bad]
         final_selection.extend(take_bad_old)
         
+    # 2. Fill Good (70%)
+    # - Try Recent Good
     take_good = pool_recent_good[:target_good]
     final_selection.extend(take_good)
     needed_good = target_good - len(take_good)
     
     if needed_good > 0:
+        # - Fallback to Old Good
         take_good_old = pool_old_good[:needed_good]
         final_selection.extend(take_good_old)
         
+    # 3. Fill Remainder (if < 10 total) with ANYTHING left
+    # Collect leftovers
     current_ids = {x["id"] for x in final_selection}
     leftovers = []
     
+    # Helper to add leftovers
     for pool in [pool_recent_good, pool_old_good, pool_recent_bad, pool_old_bad]:
         for item in pool:
             if item["id"] not in current_ids:
@@ -368,6 +450,7 @@ async def get_testimonios():
     if needed_total > 0:
         final_selection.extend(leftovers[:needed_total])
 
+    # Final Shuffle for display
     random.shuffle(final_selection)
 
     return {
@@ -385,6 +468,7 @@ async def get_average_rating():
     if not table_calif:
         return {"rating": 5.0, "total": 0}
     
+    # Formula: VISIBLE=TRUE y ESTRELLAS > 0
     formula = "AND({VISIBLE}=TRUE(), {ESTRELLAS}>0)"
     try:
         records = table_calif.all(formula=formula, fields=["ESTRELLAS"])
@@ -416,6 +500,7 @@ async def save_rating(data: RatingRequest):
     if not table_calif:
         raise HTTPException(status_code=500, detail="Airtable config missing")
 
+    # Campos base
     fields = {
         "ESTRELLAS": data.estrellas,
         "CUAL FUE TU EXPERIENCIA CON NOSOTROS": data.estrellas, 
@@ -427,30 +512,37 @@ async def save_rating(data: RatingRequest):
         "VISIBLE": True,
         "AUTORIZA_PUBLICAR": data.autoriza_publicar,
         "USAR FOTO": data.usar_foto,
-        "EMPLEADO": ["recrUCS6NhFjVmzqm"]
+        "EMPLEADO": ["recrUCS6NhFjVmzqm"] # ID Agente Online
     }
 
     client_linked = False
     
+    # Intentar vincular cliente
+    # Intentar vincular cliente
     if data.es_cliente == "Sí" and data.dni:
+        # Por defecto asumimos 'No' hasta encontrarlo (Lógica N8N)
         fields["ES_CLIENTE"] = "No" 
         
+        # Limpiar DNI (solo dígitos porque en Airtable es NUMBER)
         dni_limpio = "".join(filter(str.isdigit, str(data.dni)))
 
         if table_clientes and dni_limpio:
             try:
+                # Buscar ID del cliente (Campo numérico, sin comillas)
                 formula = f"{{DNI}}={dni_limpio}"
                 c_records = table_clientes.all(formula=formula, max_records=1)
                 
                 if c_records:
-                    fields["CLIENTE"] = [c_records[0]["id"]]
-                    fields["ES_CLIENTE"] = "Sí"
-                    fields["DNI"] = int(dni_limpio)
+                    fields["CLIENTE"] = [c_records[0]["id"]]  # Link record
+                    fields["ES_CLIENTE"] = "Sí"  # Confirmado
+                    fields["DNI"] = int(dni_limpio) # Guardar como número si el campo destino lo permite o string limpio
                     client_linked = True
                 else:
+                    # No encontrado -> Se mantiene ES_CLIENTE='No'
                     pass
             except Exception as e_airtable:
                 print(f"Error buscando cliente en Airtable: {e_airtable}")
+                # No fallamos todo el proceso, solo la vinculación
                 pass
     
     try:
@@ -504,6 +596,7 @@ async def validate_siniestro(dni: str, patente: str):
     # 2. Obtener compilación de pólizas (Lookup)
     compilacion = cliente.get("ETIQUETA_POLIZA Compilación (de POLIZAS)", [])
     
+    # Manejar si es string o lista
     if isinstance(compilacion, list):
         texto_polizas = " | ".join([str(x) for x in compilacion])
     else:
@@ -516,7 +609,10 @@ async def validate_siniestro(dni: str, patente: str):
             "message": f"No encontramos el vehículo patente {patente_limpia} asociado a tu DNI."
         }
 
-    # 4. Extraer el bloque completo de la póliza
+    # 4. Extraer el bloque completo de la póliza que corresponde a esta patente
+    # El formato puede tener múltiples pólizas separadas por pipes.
+    # Estrategia: Dividir por '|' y agrupar. Un nuevo grupo empieza cuando detectamos un Estado (✅, ❌, ⏳, ⚠️).
+    
     parts = [p.strip() for p in texto_polizas.split("|")]
     bloques_detectados = []
     current_bloque = []
@@ -524,28 +620,37 @@ async def validate_siniestro(dni: str, patente: str):
     emojis_inicio = ["✅", "❌", "⏳", "⚠️"]
     
     for part in parts:
+        # Verificar si este fragmento es el inicio de una nueva póliza (tiene emoji de estado)
         es_inicio = any(e in part for e in emojis_inicio) and ("VENCE" in part or "ANULADA" in part or "BAJA" in part or "ACTIVA" in part)
         
+        # Caso especial: Si es el primer fragmento, siempre empieza bloque
         if not current_bloque:
             current_bloque.append(part)
         elif es_inicio:
+            # Guardar el bloque anterior y empezar uno nuevo
             bloques_detectados.append(" | ".join(current_bloque))
             current_bloque = [part]
         else:
+            # Continuar agregando al bloque actual
             current_bloque.append(part)
             
+    # Agregar el último bloque procesado
     if current_bloque:
         bloques_detectados.append(" | ".join(current_bloque))
         
+    # Buscar cuál de estos bloques contiene la patente
     bloque_match = None
     for bloque in bloques_detectados:
+        # Chequeo robusto de patente: que esté la patente y (opcionalmente) el emoji
         if patente_limpia in bloque.upper():
             bloque_match = bloque
             break
             
+    # Fallback si no se encontró (usar todo el texto, aunque sea arriesgado)
     if not bloque_match:
         bloque_match = texto_polizas
 
+    # Verificar estado (ANULADA/BAJA) SOLAMENTE en el bloque coincidente
     if "ANULADA" in bloque_match.upper() or "BAJA" in bloque_match.upper():
         return {
             "valid": False,
@@ -562,6 +667,7 @@ async def validate_siniestro(dni: str, patente: str):
     }
 
     # 6. Obtener Record ID de la Póliza para pre-llenado correcto en Airtable
+    # El formulario requiere el ID (rec...) para vincular, no el número de texto.
     record_id_poliza = None
     ids_polizas = cliente.get("POLIZAS", [])
     
@@ -569,10 +675,14 @@ async def validate_siniestro(dni: str, patente: str):
         try:
             table_polizas = get_table("POLIZAS")
             if table_polizas:
+                # Iteramos las pólizas del cliente para encontrar la que coincide con la patente
+                # Esto es más seguro que buscar en toda la tabla
                 for pid in ids_polizas:
                     try:
                         pol_record = table_polizas.get(pid)
                         fields_p = pol_record["fields"]
+                        # Buscamos patente en campos clave o etiqueta
+                        # Usamos representación string de campos para asegurar match
                         str_fields = str(fields_p.values()).upper()
                         
                         if patente_limpia in str_fields:
@@ -591,7 +701,7 @@ async def validate_siniestro(dni: str, patente: str):
             "apellido": cliente.get("APELLIDO", ""),
         },
         "poliza": {
-            "record_id": record_id_poliza,
+            "record_id": record_id_poliza, # ID para Linked Record
             "numero": poliza_info["numero"],
             "patente": poliza_info["patente"],
             "tipo_vehiculo": poliza_info["tipo_vehiculo"],
@@ -624,7 +734,7 @@ async def get_config_formularios():
         # 1. Traer Todos los Formularios
         forms_records = t_forms.all()
         
-        # 2. Traer Todos los Campos
+        # 2. Traer Todos los Campos (Optimizacion: traer todo y filtrar en memoria)
         campos_records = t_campos.all()
         
         config_response = {}
@@ -638,28 +748,36 @@ async def get_config_formularios():
             
             form_id = f_rec["id"]
             
+            # Filtrar campos para este formulario
+            # El campo "Formulario" en CONFIG_CAMPOS es un array de IDs [RecID]
             my_fields = []
             for c_rec in campos_records:
                 c = c_rec["fields"]
                 linked_forms = c.get("FORMULARIO") or c.get("Formulario", [])
                 if form_id in linked_forms:
+                    # Mapear a estructura Frontend
                     campo_front = {
                         "id": c.get("ID CAMPO"),
                         "label": c.get("ETIQUETA"),
                         "type": c.get("TIPO", "text"),
                         "required": c.get("OBLIGATORIO", False),
+                        # Opcionales
                         "placeholder": c.get("PLACEHOLDER", ""),
                         "options": c.get("OPCIONES", "").split(",") if c.get("OPCIONES") else [],
                     }
                     # NO exponer COLUMNA AIRTABLE al frontend (info interna)
+                    # Limpieza de None
                     campo_front = {k: v for k, v in campo_front.items() if v is not None}
                     
+                    # Agregar orden si existe para sortear despues
                     campo_front["_orden"] = c.get("ORDEN", 999)
                     
                     my_fields.append(campo_front)
             
+            # Ordenar campos
             my_fields.sort(key=lambda x: x["_orden"])
             
+            # Quitar _orden del output final clean
             for mf in my_fields:
                 if "_orden" in mf: del mf["_orden"]
 
@@ -679,7 +797,7 @@ async def get_config_formularios():
 
 
 # ==============================================================================
-# CREACIÓN DE SINIESTRO
+# CRECIÓN DE SINIESTRO
 # ==============================================================================
 
 class SiniestroRequest(BaseModel):
@@ -715,6 +833,7 @@ async def create_siniestro(request: Request):
              raise HTTPException(status_code=400, detail="JSON de datos inválido")
 
         # 2. Obtener Configuración Dinámica (Mapping)
+        # Buscamos el formulario por Slug
         t_forms = get_table("CONFIG_FORMULARIOS")
         params = {"filterByFormula": f"{{CODIGO}}='{tipo_formulario}'", "maxRecords": 1}
         forms_records = t_forms.all(**params)
@@ -727,12 +846,21 @@ async def create_siniestro(request: Request):
         
         # Obtenemos los campos de este formulario
         t_campos = get_table("CONFIG_CAMPOS")
+        # Filtramos por el Link al Formulario (Esto requiere que 'Formulario' sea un campo Link)
+        # Una forma más segura si no sabemos el nombre exacto del campo link:
+        # Traer todos y filtrar en memoria (si son pocos) o usar la formula correcta.
+        # Asumimos que el campo se llama "Formulario" como en el script.
+        # Formula: ver si el ID del form esta en el array de links.
+        # SEARCH('recID', ARRAYJOIN({Formulario}))
+        
+        # Como pyairtable filterByFormula es string:
         filter_formula = f"OR(SEARCH('{form_id}', ARRAYJOIN({{FORMULARIO}})), SEARCH('{form_id}', ARRAYJOIN({{Formulario}})))"
         campos_records = t_campos.all(formula=filter_formula)
         
         # Construir Mapa: ID Frontend -> Columna Airtable
+        # { "foto_dni": "FOTO DNI", "fecha": "FECHA DEL SINIESTRO", ... }
         field_map = {}
-        file_fields = []
+        file_fields = [] # Lista de IDs que son archivos
         
         for r in campos_records:
             f = r["fields"]
@@ -748,17 +876,24 @@ async def create_siniestro(request: Request):
         # 3. Mapear Datos (JSON) -> Airtable Fields
         airtable_payload = {}
         
+        # Datos JSON explicitos
         for key, value in datos_dict.items():
             if key in field_map:
                 col_name = field_map[key]
                 airtable_payload[col_name] = value
                 
         # 4. Procesar Archivos
+        # Iteramos los keys del form_data que coincidan con campos de archivo
+        # Nota: form_data.getlist(key) devuelve lista de UploadFile
+        
+        # Cache de subidas para no subir 2 veces si el mismo archivo llega por algun motivo (raro)
+        
         for f_id in file_fields:
             if f_id in form_data:
+                # Puede ser uno o varios archivos (getlist)
                 archivos = form_data.getlist(f_id)
                 
-                urls_adjuntos = []
+                urls_adjuntos = [] # Formato para Airtable: [{"url": "..."}]
                 
                 for archivo in archivos:
                     if isinstance(archivo, UploadFile):
@@ -769,14 +904,17 @@ async def create_siniestro(request: Request):
                 
                 if urls_adjuntos:
                     col_name = field_map[f_id]
+                    # Append si ya existe (ej: multi-upload en chunks), pero aqui es todo junto
                     if col_name in airtable_payload:
+                        # Si ya habia algo (raro en este flujo), extendemos
                          current = airtable_payload[col_name]
                          if isinstance(current, list):
                              current.extend(urls_adjuntos)
                     else:
                         airtable_payload[col_name] = urls_adjuntos
 
-        # 5. Vinculaciones (Poliza y Cliente)
+        # 5. Vinculaciones (Poliza y Cliente) - Mantenemos lógica hardcoded/híbrida
+        # porque estos no vienen del config dinamico generalmente, son del contexto
         if poliza_record_id:
             airtable_payload["POLIZAS"] = [poliza_record_id]
             
@@ -792,9 +930,13 @@ async def create_siniestro(request: Request):
                     print(f"Error vinculando cliente: {e}")
 
         # 6. Guardar en Airtable
+        # Estrategia Dinámica: Leer "TABLA RELACIONADA" de la configuración
+        # Fallback: Hardcoded por si la config es vieja o incompleta
+        
         target_table_name = form_record["fields"].get("TABLA RELACIONADA")
 
         if not target_table_name:
+            # Lógica Legacy (Fallback)
             print("⚠️ Usando Fallback de Tabla (No definido en Config)")
             if tipo_formulario == "accidente":
                 target_table_name = "DENUNCIA DE ACCIDENTE"
@@ -803,9 +945,9 @@ async def create_siniestro(request: Request):
             elif tipo_formulario == "robo-parcial":
                 target_table_name = "DENUNCIA ROBO OC"
             else:
-                target_table_name = "DENUNCIAS_GENERICAS"
+                target_table_name = "DENUNCIAS_GENERICAS" # Ultimo recurso
         
-        print(f"Enviando a Airtable {target_table_name}: {json.dumps(airtable_payload, default=str)}")
+        print(f"Enviando a Airtable {target_table_name}: {json.dumps(airtable_payload, default=str)}") # Log seguro
         
         target_table = get_table(target_table_name)
         record = target_table.create(airtable_payload, typecast=True)
@@ -816,5 +958,3 @@ async def create_siniestro(request: Request):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-
