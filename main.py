@@ -3,7 +3,7 @@ import random
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Form, Request
 import json
 try:
     from .drive_service import upload_file_to_drive
@@ -59,30 +59,47 @@ class RatingRequest(BaseModel):
 def parse_poliza_block(bloque_texto: str) -> list:
     """
     Parsea un bloque de ETIQUETA_POLIZA y extrae toda la información.
-    Soporta múltiples pólizas concatenadas separandolas por emojis de estado.
-    Retorna una LISTA de diccionarios con la info de cada poliiza encontrada.
+    Soporta múltiples pólizas concatenadas separandolas por emojis de estado o palabras clave.
+    Estrategia: Dividir por '|' y reagrupar lógicamente.
     """
     import re
-    
+
     # 1. Limpieza inicial
     if not bloque_texto:
         return []
 
-    # 2. Estrategia de Split: Dividir por emojis de estado que marcan el inicio de un bloque
-    # Expresión regular que busca emojis comunes de inicio de bloque
-    # (?=...) es un lookahead positivo para mantener el delimitador
-    SEPARATORS_PATTERN = r'(?=[✅🔴🟢⏳⚠️❌])' 
+    # 2. Tokenizar por tubería '|'
+    parts = [p.strip() for p in bloque_texto.split("|")]
+    bloques_reconstruidos = []
+    current_bloque = []
     
-    posibles_bloques = re.split(SEPARATORS_PATTERN, bloque_texto)
-    bloques = [b.strip() for b in posibles_bloques if b.strip()]
+    # Emojis/Keywords que marcan inicio de poliza (heurística)
+    emojis_inicio = ["✅", "❌", "⏳", "⚠️", "🟢", "🔴", "🟣", "⭕"]
+    keywords_inicio = ["VIGENTE", "VENCE", "ANULADA", "BAJA", "ACTIVA", "SIN VIGENCIA", "SIN POLIZAS", "TRAMITES"]
 
-    # Si no se encontraron bloques con emojis, tratamos todo como un solo bloque
-    if not bloques:
-        bloques = [bloque_texto]
+    for part in parts:
+        part_upper = part.upper()
+        # Es inicio si tiene emoji de estado Y palabras clave de estado
+        tiene_emoji = any(e in part for e in emojis_inicio)
+        tiene_keyword = any(k in part_upper for k in keywords_inicio)
+        
+        es_inicio = tiene_emoji and tiene_keyword
+        
+        # Caso especial: Si es el primer fragmento, empieza bloque
+        if not current_bloque:
+            current_bloque.append(part)
+        elif es_inicio:
+            bloques_reconstruidos.append(" | ".join(current_bloque))
+            current_bloque = [part]
+        else:
+            current_bloque.append(part)
+            
+    if current_bloque:
+        bloques_reconstruidos.append(" | ".join(current_bloque))
 
     parsed_policies = []
     
-    for bloque in bloques:
+    for bloque in bloques_reconstruidos:
         p_info = {
             "numero": "",
             "patente": "",
@@ -94,37 +111,61 @@ def parse_poliza_block(bloque_texto: str) -> list:
             "descripcion_completa": bloque
         }
         
-        # Extraer N° POL
-        match = re.search(r'N°\s*POL:?\s*(\d+)', bloque, re.IGNORECASE)
+        # Extraer N POL — usar [0-9] en vez de d, [ ] en vez de s
+        match = re.search(r'N[°][ ]*POL[:]?[ ]*([0-9]+)', bloque, re.IGNORECASE)
+        if not match:
+            # Fallback: buscar cualquier secuencia de 5+ digitos como numero de poliza pero evitar patentes numericas largas (raro)
+            match = re.search(r'([0-9]{5,})', bloque)
         if match:
             p_info["numero"] = match.group(1)
         
-        # Extraer Patente
-        match = re.search(r'🏷️\s*([A-Z0-9]+)', bloque, re.IGNORECASE)
-        if match:
-            p_info["patente"] = match.group(1).upper()
+        # Extraer Patente con emoji
+        # Intentamos capturar lo que sigue al emoji de etiqueta
+        match = re.search(r'🏷️?[ ]*([A-Z]{2,3}[0-9]{3}[A-Z]{0,2}|[A-Z0-9]{6,9})', bloque, re.IGNORECASE)
+        # Refinamiento: Si hay un emoji "🏷️" explícito, tomamos lo que sigue
+        match_explicit = re.search(r'🏷️[ ]*([A-Z0-9]+)', bloque, re.IGNORECASE)
         
-        # Extraer Tipo de vehículo
-        match = re.search(r'[🚗🚙🚛🏍️]\s+([A-ZÁ-Ú]+)', bloque)
+        if match_explicit:
+             p_info["patente"] = match_explicit.group(1).upper()
+        elif match:
+             # Validación extra para evitar falsos positivos
+             posible_patente = match.group(1).upper()
+             # Patentes argentinas viejas (AAA123) o nuevas (AA123BB) o motos (A123BCD)
+             # Evitar capturar cosas como "VENCE" o "POL" si el regex es muy laxo
+             if len(posible_patente) >= 6 and not posible_patente.startswith("POL"):
+                 p_info["patente"] = posible_patente
+        
+        # Extraer Tipo de vehiculo con emoji auto/moto/camion
+        match = re.search(r'[🚗🚙🚛🏍️][ ]+([A-ZÁ-Ú]+)', bloque)
         if match:
             tipo = match.group(1).strip()
             if len(tipo) > 2 and tipo not in ["POL"]: 
                 p_info["tipo_vehiculo"] = tipo
+        
+        # Si no encontro tipo, buscar palabras clave comunes
+        if not p_info["tipo_vehiculo"]:
+            for tipo_clave in ["AUTOMOVIL", "AUTO", "CAMIONETA", "MOTO", "CAMION", "UTILITARIO", "PICK UP", "PICKUP"]:
+                if tipo_clave in bloque.upper():
+                    p_info["tipo_vehiculo"] = tipo_clave
+                    break
             
         # Extraer Estado
-        if "ANULADA" in bloque:
+        bloque_upper = bloque.upper()
+        if "ANULADA" in bloque_upper:
             p_info["estado"] = "ANULADA"
-        elif "VIGENTE" in bloque:
+        elif "VIGENTE" in bloque_upper:
             p_info["estado"] = "VIGENTE"
+        elif "SIN VIGENCIA" in bloque_upper:
+             p_info["estado"] = "SIN VIGENCIA"
         
-        match_vence = re.search(r'(VENCE\s*\d+D?)', bloque)
+        match_vence = re.search(r'(VENCE[ ]*[0-9]+[D]?)', bloque_upper)
         if match_vence:
             p_info["estado"] = match_vence.group(1)
         
-        # Extras
-        if "VIDA: SI" in bloque or "❤️ VIDA" in bloque:
+        # Extras: Vida y Auxilio
+        if "VIDA: SI" in bloque_upper or "❤️ VIDA" in bloque or "VIDA" in bloque_upper:
             p_info["vida"] = True
-        if "AUX" in bloque or "🆘" in bloque or "🔧" in bloque:
+        if "AUX" in bloque_upper or "🆘" in bloque or "🔧" in bloque:
             p_info["auxilio"] = True
             
         parsed_policies.append(p_info)
@@ -230,7 +271,7 @@ async def validar_cliente(dni: str, patente: str):
                         # Buscamos patente en campos clave o etiqueta
                         str_fields = str(fields_p.values()).upper()
                         
-                        if patente_upper in str_fields:
+                        if patente_buscada in str_fields:
                             record_id_poliza = pid
                             break
                     except:
@@ -249,7 +290,7 @@ async def validar_cliente(dni: str, patente: str):
         "poliza": {
             "record_id": record_id_poliza,
             "numero": poliza_match.get("numero", "0000"),
-            "patente": poliza_match.get("patente", patente_upper),
+            "patente": poliza_match.get("patente", patente_buscada),
             "tipo_vehiculo": poliza_match.get("tipo_vehiculo", "VEHICULO"),
             "categoria": poliza_match.get("categoria", ""),
             "vida": poliza_match.get("vida", False),
