@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
-# Force Deploy v2.3 (Hardcoded Schemas)
+# Force Deploy v2
 
 # Configuración CORS
 app.add_middleware(
@@ -283,8 +283,8 @@ async def validar_cliente(dni: str, patente: str):
         "valid": True,
         "message": "Validación exitosa",
         "cliente": {
-            "nombres": cliente.get("Nombres"),
-            "apellido": cliente.get("Apellido"),
+            "nombres": cliente.get("NOMBRES"),
+            "apellido": cliente.get("APELLIDO"),
             "fullname": nombre_completo
         },
         "poliza": {
@@ -797,88 +797,14 @@ async def get_config_formularios():
 
 
 # ==============================================================================
-# CRECIÓN DE SINIESTRO
+# CREACIÓN DE SINIESTRO
 # ==============================================================================
 
 # ==============================================================================
-# ESQUEMAS HARDCODED (FALLBACK DE SEGURIDAD)
+# URL DEL WEBHOOK N8N PARA CREAR SINIESTROS (100% DINÁMICO)
 # ==============================================================================
-# Estos esquemas se usan cuando el mapeo dinámico falla o para asegurar 
-# que los formularios críticos (Accidente, Robo) funcionen siempre.
-# Basado en 'mapeo_campos.md'
-
-FORM_SCHEMAS = {
-    "accidente": {
-        "target_table": "DENUNCIA DE ACCIDENTE",
-        "mapping": {
-            # Frontend ID -> Airtable Column
-            "relato": "RELATOS DEL HECHO",
-            "fecha": "FECHA DEL SINIESTRO",
-            "hora": "HORA DEL SINIESTRO",
-            "lugar": "DIRECCIÓN Y N°",
-            "interseccion": "INTERSECCIÓN O ENTRE CALLES",
-            "localidad": "LOCALIDAD",
-            "cp": "CÓDIGO POSTAL",
-            "terceros": "HAY TERCEROS",
-            "lesionados": "HAY LESIONADOS",
-            "comisaria": "INTERVINO COMISARIA",
-            "acta": "NUMERO DE ACTA",
-            # Archivos
-            "foto_dni_frente": "FOTO DNI FRENTE",
-            "foto_dni_dorso": "FOTO DNI DORSO",
-            "foto_registro_frente": "FOTO REGISTRO FRENTE",
-            "foto_registro_dorso": "FOTO REGISTRO DORSO",
-            "foto_cedula_frente": "FOTO CEDULA FRENTE",
-            "foto_cedula_dorso": "FOTO CEDULA DORSO",
-            "fotos_danios": "FOTOS DAÑOS",
-            "presupuesto": "PRESUPUESTO",
-            "denuncia_policial": "DENUNCIA POLICIAL"
-        }
-    },
-    "robo-incendio": {
-        "target_table": "DENUNCIA ROBO / INCENDIO",
-        "mapping": {
-            "relato": "RELATOS DEL HECHO",
-            "fecha": "FECHA DEL SINIESTRO",
-            "hora": "HORA DEL SINIESTRO",
-            "lugar": "DIRECCIÓN Y N°",
-            # Archivos
-            "foto_dni_frente": "FOTO DNI FRENTE",
-            "foto_dni_dorso": "FOTO DNI DORSO",
-            "foto_registro_frente": "FOTO REGISTRO FRENTE",
-            "foto_registro_dorso": "FOTO REGISTRO DORSO",
-            "foto_cedula_frente": "FOTO CEDULA FRENTE",
-            "foto_cedula_dorso": "FOTO CEDULA DORSO",
-            "denuncia_policial": "DENUNCIA POLICIAL",
-            "baja_automotor": "CONSTANCIA DE BAJA"
-        }
-    },
-    "robo-parcial": {
-        "target_table": "DENUNCIA ROBO OC",
-        "mapping": {
-            "relato": "RELATOS DEL HECHO",
-            "fecha": "FECHA DEL SINIESTRO",
-            "hora": "HORA DEL SINIESTRO",
-            "lugar": "DIRECCIÓN Y N°",
-             # Archivos
-            "foto_dni_frente": "FOTO DNI FRENTE",
-            "foto_dni_dorso": "FOTO DNI DORSO",
-            "foto_registro_frente": "FOTO REGISTRO FRENTE",
-            "foto_registro_dorso": "FOTO REGISTRO DORSO",
-            "foto_cedula_frente": "FOTO CEDULA FRENTE",
-            "foto_cedula_dorso": "FOTO CEDULA DORSO",
-            "fotos_danios": "FOTOS DAÑOS",
-            "denuncia_policial": "DENUNCIA POLICIAL"
-        }
-    }
-}
-
-# Alias para variantes con mismos campos base
-FORM_SCHEMAS["robo"] = FORM_SCHEMAS["robo-incendio"]
-FORM_SCHEMAS["incendio"] = FORM_SCHEMAS["robo-incendio"]
-FORM_SCHEMAS["cristales"] = FORM_SCHEMAS["robo-parcial"]
-FORM_SCHEMAS["ruedas"] = FORM_SCHEMAS["robo-parcial"]
-
+N8N_BASE_URL = os.getenv("N8N_BASE_URL", "https://primary-production-0abcf.up.railway.app")
+N8N_WEBHOOK_SINIESTRO = f"{N8N_BASE_URL}/webhook/crear-siniestro"
 
 
 class SiniestroRequest(BaseModel):
@@ -891,20 +817,21 @@ class SiniestroRequest(BaseModel):
 @app.post("/api/create-siniestro")
 async def create_siniestro(request: Request):
     """
-    Crea un registro en Airtable.
-    Estrategia Híbrida: 
-    1. Intenta usar Esquema Hardcoded (Más rápido y seguro para flows críticos).
-    2. Si no existe esquema, intenta usar Configuración Dinámica (Legacy/Flexibilidad).
+    Crea un registro de siniestro.
+    Estrategia: Python sube archivos a Drive, luego delega a n8n 
+    para lectura de config dinámica y escritura en Airtable.
     """
+    import httpx
+    
     try:
-        # 1. Parsear datos
+        # 1. Parsear FormData
         form_data = await request.form()
         tipo_formulario = form_data.get("tipo_formulario")
         poliza_record_id = form_data.get("poliza_record_id")
         dni = form_data.get("dni")
         datos_json = form_data.get("datos")
 
-        print(f"📝 create_siniestro recibido: {tipo_formulario}")
+        print(f"📝 create_siniestro v3 (n8n): {tipo_formulario}")
 
         if not tipo_formulario or not datos_json:
             raise HTTPException(status_code=400, detail="Datos incompletos")
@@ -914,119 +841,65 @@ async def create_siniestro(request: Request):
         except:
             raise HTTPException(status_code=400, detail="JSON inválido")
 
-        # variables de destino
-        target_table_name = None
-        field_map = {}
+        # 2. Subir TODOS los archivos a Google Drive
+        # Iteramos form_data buscando UploadFile instances
+        archivos_subidos = {}  # { campo_id: [{url: "..."}] }
         
-        # 2. SELECCIÓN DE ESTRATEGIA
-        using_hardcoded = False
-        
-        if tipo_formulario in FORM_SCHEMAS:
-            print(f"🔒 Usando Esquema Estático para: {tipo_formulario}")
-            schema = FORM_SCHEMAS[tipo_formulario]
-            target_table_name = schema["target_table"]
-            field_map = schema["mapping"]
-            using_hardcoded = True
+        for key in form_data:
+            items = form_data.getlist(key)
+            for item in items:
+                if isinstance(item, UploadFile) and item.filename and item.size and item.size > 0:
+                    print(f"📂 Subiendo archivo '{key}': {item.filename}")
+                    link = await upload_file_to_drive(item)
+                    if link:
+                        if key not in archivos_subidos:
+                            archivos_subidos[key] = []
+                        archivos_subidos[key].append({"url": link})
+
+        # 3. Construir JSON limpio para n8n
+        n8n_payload = {
+            "tipo_formulario": tipo_formulario,
+            "datos": datos_dict,
+            "archivos": archivos_subidos,
+            "poliza_record_id": poliza_record_id,
+            "dni": dni
+        }
+
+        print(f"🚀 Delegando a n8n: {N8N_WEBHOOK_SINIESTRO}")
+        print(f"   Payload keys: {list(n8n_payload.keys())}")
+        print(f"   Archivos subidos: {list(archivos_subidos.keys())}")
+
+        # 4. Llamar al webhook de n8n
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                N8N_WEBHOOK_SINIESTRO,
+                json=n8n_payload,
+                headers={"Content-Type": "application/json"}
+            )
+
+        print(f"📨 Respuesta n8n: {response.status_code}")
+
+        # 5. Reenviar respuesta de n8n al frontend
+        if response.status_code == 200:
+            n8n_data = response.json()
+            return {
+                "status": n8n_data.get("status", "success"),
+                "id": n8n_data.get("id", "N/A"),
+                "message": n8n_data.get("message", "Denuncia procesada")
+            }
         else:
-            print(f"⚠️ Tipo '{tipo_formulario}' no tiene esquema estático. Intentando dinámico...")
-            # Lógica Dinámica (Solo Fallback)
+            # n8n respondió con error
             try:
-                t_forms = get_table("CONFIG_FORMULARIOS")
-                all_forms = t_forms.all()
-                form_record = next((f for f in all_forms if f["fields"].get("CODIGO") == tipo_formulario), None)
-                
-                if not form_record:
-                    raise HTTPException(status_code=404, detail=f"No config for {tipo_formulario}")
-                
-                form_id = form_record["id"]
-                target_table_name = form_record["fields"].get("TABLA RELACIONADA")
-                
-                t_campos = get_table("CONFIG_CAMPOS")
-                all_campos = t_campos.all()
-                
-                for c_rec in all_campos:
-                    c = c_rec["fields"]
-                    linked = c.get("FORMULARIO") or c.get("Formulario", [])
-                    if form_id in linked:
-                         fid = c.get("ID CAMPO")
-                         col = c.get("COLUMNA AIRTABLE")
-                         if fid and col:
-                             field_map[fid] = col
-                             
-            except Exception as e:
-                print(f"❌ Fallo estrategia dinámica: {e}")
-                raise HTTPException(status_code=500, detail=f"Error configuración dinámica: {e}")
-
-        if not target_table_name:
-            raise HTTPException(status_code=500, detail="No se pudo determinar tabla destino")
-
-        # 3. Construir Payload
-        airtable_payload = {}
-        
-        # Mapeo de campos simples (Texto, Fechas, Selects)
-        for key, value in datos_dict.items():
-            if key in field_map:
-                col_name = field_map[key]
-                # Limpieza básica
-                if value == "" or value is None: continue
-                airtable_payload[col_name] = value
-
-        # 4. Procesar Archivos (Multipart)
-        # Identificar qué keys del mapa corresponden a archivos (heurística o config)
-        # En hardcoded, asumimos que si está en form_data y es UploadFile, es un archivo
-        
-        uploaded_files_map = {} # Columna -> [urls]
-
-        for key, value in form_data.items():
-            # Si el key está en nuestro mapa, subimos
-            if key in field_map:
-                col_name = field_map[key]
-                archivos = form_data.getlist(key)
-                
-                urls = []
-                for archivo in archivos:
-                    if isinstance(archivo, UploadFile) and archivo.filename:
-                        print(f"📂 Subiendo: {key} -> {col_name}")
-                        link = await upload_file_to_drive(archivo)
-                        if link:
-                            urls.append({"url": link})
-                
-                if urls:
-                    if col_name not in uploaded_files_map:
-                        uploaded_files_map[col_name] = []
-                    uploaded_files_map[col_name].extend(urls)
-
-        # Merge files into payload
-        for col, urls in uploaded_files_map.items():
-            airtable_payload[col] = urls
-
-        # 5. Vinculaciones (Cliente y Póliza)
-        if poliza_record_id:
-            airtable_payload["POLIZAS"] = [poliza_record_id]
+                error_data = response.json()
+                error_msg = error_data.get("message", f"n8n respondió con status {response.status_code}")
+            except:
+                error_msg = f"n8n respondió con status {response.status_code}"
             
-        if dni:
-            dni_clean = "".join(filter(str.isdigit, str(dni)))
-            if dni_clean:
-                # Buscar cliente (esto siempre es dinámico/lookup)
-                t_cli = get_table("CLIENTES")
-                try:
-                    # Traemos por formula directa
-                    # NOTA: filterByFormula parece fallar segun logs recientes
-                    # Usar filtrado manual si es seguro, o intentar formula simple
-                    # Probamos formula simple primero. Si falla, fallback.
-                    found = t_cli.all(formula=f"{{DNI}}='{dni_clean}'", max_records=1)
-                    if found:
-                        airtable_payload["CLIENTE"] = [found[0]["id"]]
-                except:
-                    print("⚠️ Error buscando cliente para vincular (ignorado)")
+            print(f"❌ Error n8n: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
 
-        # 6. Guardar
-        print(f"🚀 Enviando a {target_table_name}: {json.dumps(airtable_payload, default=str)}")
-        t_target = get_table(target_table_name)
-        new_record = t_target.create(airtable_payload, typecast=True)
-        
-        return {"status": "success", "id": new_record["id"], "message": "Enviado exitosamente"}
-
+    except HTTPException:
+        raise  # Re-lanzar HTTPExceptions directamente
     except Exception as e:
         import traceback
         traceback.print_exc()
