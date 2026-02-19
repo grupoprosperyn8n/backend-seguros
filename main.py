@@ -800,6 +800,14 @@ async def get_config_formularios():
 # CRECIÓN DE SINIESTRO
 # ==============================================================================
 
+# ==============================================================================
+# URL DEL WEBHOOK N8N PARA CREAR SINIESTROS (100% DINÁMICO)
+# ==============================================================================
+N8N_BASE_URL = os.getenv("N8N_BASE_URL", "https://primary-production-0abcf.up.railway.app")
+N8N_WEBHOOK_SINIESTRO = f"{N8N_BASE_URL}/webhook/crear-siniestro"
+
+
+
 class SiniestroRequest(BaseModel):
     tipo_formulario: str
     poliza_record_id: str
@@ -810,153 +818,91 @@ class SiniestroRequest(BaseModel):
 @app.post("/api/create-siniestro")
 async def create_siniestro(request: Request):
     """
-    Crea un registro en Airtable mapeando dinámicamente campos y archivos
-    basado en la configuración (CONFIG_FORMULARIOS/CAMPOS).
+    Crea un registro de siniestro.
+    Estrategia: Python sube archivos a Drive, luego delega a n8n 
+    para lectura de config dinámica y escritura en Airtable.
     """
+    import httpx
+    
     try:
-        # 1. Parsear Multipart Form
+        # 1. Parsear FormData
         form_data = await request.form()
-        
         tipo_formulario = form_data.get("tipo_formulario")
         poliza_record_id = form_data.get("poliza_record_id")
         dni = form_data.get("dni")
         datos_json = form_data.get("datos")
-        
-        print(f"📝 Recibiendo siniestro Dynamic: {tipo_formulario}")
+
+        print(f"📝 create_siniestro v3 (n8n): {tipo_formulario}")
 
         if not tipo_formulario or not datos_json:
-             raise HTTPException(status_code=400, detail="Faltan datos obligatorios (tipo_formulario, datos)")
+            raise HTTPException(status_code=400, detail="Datos incompletos")
 
         try:
             datos_dict = json.loads(datos_json)
         except:
-             raise HTTPException(status_code=400, detail="JSON de datos inválido")
+            raise HTTPException(status_code=400, detail="JSON inválido")
 
-        # 2. Obtener Configuración Dinámica (Mapping)
-        # Buscamos el formulario por Slug
-        t_forms = get_table("CONFIG_FORMULARIOS")
-        params = {"filterByFormula": f"{{CODIGO}}='{tipo_formulario}'", "maxRecords": 1}
-        forms_records = t_forms.all(**params)
+        # 2. Subir TODOS los archivos a Google Drive
+        # Iteramos form_data buscando UploadFile instances
+        archivos_subidos = {}  # { campo_id: [{url: "..."}] }
         
-        if not forms_records:
-            raise HTTPException(status_code=404, detail=f"Configuración no encontrada para: {tipo_formulario}")
+        for key in form_data:
+            items = form_data.getlist(key)
+            for item in items:
+                if isinstance(item, UploadFile) and item.filename and item.size and item.size > 0:
+                    print(f"📂 Subiendo archivo '{key}': {item.filename}")
+                    link = await upload_file_to_drive(item)
+                    if link:
+                        if key not in archivos_subidos:
+                            archivos_subidos[key] = []
+                        archivos_subidos[key].append({"url": link})
+
+        # 3. Construir JSON limpio para n8n
+        n8n_payload = {
+            "tipo_formulario": tipo_formulario,
+            "datos": datos_dict,
+            "archivos": archivos_subidos,
+            "poliza_record_id": poliza_record_id,
+            "dni": dni
+        }
+
+        print(f"🚀 Delegando a n8n: {N8N_WEBHOOK_SINIESTRO}")
+        print(f"   Payload keys: {list(n8n_payload.keys())}")
+        print(f"   Archivos subidos: {list(archivos_subidos.keys())}")
+
+        # 4. Llamar al webhook de n8n
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                N8N_WEBHOOK_SINIESTRO,
+                json=n8n_payload,
+                headers={"Content-Type": "application/json"}
+            )
+
+        print(f"📨 Respuesta n8n: {response.status_code}")
+
+        # 5. Reenviar respuesta de n8n al frontend
+        if response.status_code == 200:
+            n8n_data = response.json()
+            return {
+                "status": n8n_data.get("status", "success"),
+                "id": n8n_data.get("id", "N/A"),
+                "message": n8n_data.get("message", "Denuncia procesada")
+            }
+        else:
+            # n8n respondió con error
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("message", f"n8n respondió con status {response.status_code}")
+            except:
+                error_msg = f"n8n respondió con status {response.status_code}"
             
-        form_record = forms_records[0]
-        form_id = form_record["id"]
-        
-        # Obtenemos los campos de este formulario
-        t_campos = get_table("CONFIG_CAMPOS")
-        # Filtramos por el Link al Formulario (Esto requiere que 'Formulario' sea un campo Link)
-        # Una forma más segura si no sabemos el nombre exacto del campo link:
-        # Traer todos y filtrar en memoria (si son pocos) o usar la formula correcta.
-        # Asumimos que el campo se llama "Formulario" como en el script.
-        # Formula: ver si el ID del form esta en el array de links.
-        # SEARCH('recID', ARRAYJOIN({Formulario}))
-        
-        # Como pyairtable filterByFormula es string:
-        filter_formula = f"OR(SEARCH('{form_id}', ARRAYJOIN({{FORMULARIO}})), SEARCH('{form_id}', ARRAYJOIN({{Formulario}})))"
-        campos_records = t_campos.all(formula=filter_formula)
-        
-        # Construir Mapa: ID Frontend -> Columna Airtable
-        # { "foto_dni": "FOTO DNI", "fecha": "FECHA DEL SINIESTRO", ... }
-        field_map = {}
-        file_fields = [] # Lista de IDs que son archivos
-        
-        for r in campos_records:
-            f = r["fields"]
-            f_id = f.get("ID CAMPO")
-            col = f.get("COLUMNA AIRTABLE")
-            f_type = f.get("TIPO")
-            
-            if f_id and col:
-                field_map[f_id] = col
-                if f_type == "file":
-                    file_fields.append(f_id)
+            print(f"❌ Error n8n: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
 
-        # 3. Mapear Datos (JSON) -> Airtable Fields
-        airtable_payload = {}
-        
-        # Datos JSON explicitos
-        for key, value in datos_dict.items():
-            if key in field_map:
-                col_name = field_map[key]
-                airtable_payload[col_name] = value
-                
-        # 4. Procesar Archivos
-        # Iteramos los keys del form_data que coincidan con campos de archivo
-        # Nota: form_data.getlist(key) devuelve lista de UploadFile
-        
-        # Cache de subidas para no subir 2 veces si el mismo archivo llega por algun motivo (raro)
-        
-        for f_id in file_fields:
-            if f_id in form_data:
-                # Puede ser uno o varios archivos (getlist)
-                archivos = form_data.getlist(f_id)
-                
-                urls_adjuntos = [] # Formato para Airtable: [{"url": "..."}]
-                
-                for archivo in archivos:
-                    if isinstance(archivo, UploadFile):
-                        print(f"📂 Subiendo archivo para campo {f_id}: {archivo.filename}")
-                        link = await upload_file_to_drive(archivo)
-                        if link:
-                            urls_adjuntos.append({"url": link})
-                
-                if urls_adjuntos:
-                    col_name = field_map[f_id]
-                    # Append si ya existe (ej: multi-upload en chunks), pero aqui es todo junto
-                    if col_name in airtable_payload:
-                        # Si ya habia algo (raro en este flujo), extendemos
-                         current = airtable_payload[col_name]
-                         if isinstance(current, list):
-                             current.extend(urls_adjuntos)
-                    else:
-                        airtable_payload[col_name] = urls_adjuntos
-
-        # 5. Vinculaciones (Poliza y Cliente) - Mantenemos lógica hardcoded/híbrida
-        # porque estos no vienen del config dinamico generalmente, son del contexto
-        if poliza_record_id:
-            airtable_payload["POLIZAS"] = [poliza_record_id]
-            
-        if dni:
-            dni_limpio = "".join(filter(str.isdigit, str(dni)))
-            t_clientes = get_table("CLIENTES")
-            if t_clientes and dni_limpio:
-                try:
-                    c_records = t_clientes.all(formula=f"{{DNI}}='{dni_limpio}'", max_records=1)
-                    if c_records:
-                        airtable_payload["CLIENTE"] = [c_records[0]["id"]]
-                except Exception as e:
-                    print(f"Error vinculando cliente: {e}")
-
-        # 6. Guardar en Airtable
-        # Estrategia Dinámica: Leer "TABLA RELACIONADA" de la configuración
-        # Fallback: Hardcoded por si la config es vieja o incompleta
-        
-        target_table_name = form_record["fields"].get("TABLA RELACIONADA")
-
-        if not target_table_name:
-            # Lógica Legacy (Fallback)
-            print("⚠️ Usando Fallback de Tabla (No definido en Config)")
-            if tipo_formulario == "accidente":
-                target_table_name = "DENUNCIA DE ACCIDENTE"
-            elif tipo_formulario == "robo-incendio":
-                target_table_name = "DENUNCIA ROBO / INCENDIO"
-            elif tipo_formulario == "robo-parcial":
-                target_table_name = "DENUNCIA ROBO OC"
-            else:
-                target_table_name = "DENUNCIAS_GENERICAS" # Ultimo recurso
-        
-        print(f"Enviando a Airtable {target_table_name}: {json.dumps(airtable_payload, default=str)}") # Log seguro
-        
-        target_table = get_table(target_table_name)
-        record = target_table.create(airtable_payload, typecast=True)
-        
-        return {"status": "success", "id": record["id"], "message": "Denuncia dinámica creada"}
-
+    except HTTPException:
+        raise  # Re-lanzar HTTPExceptions directamente
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
 
