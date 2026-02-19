@@ -846,16 +846,18 @@ async def create_siniestro(request: Request):
         
         # Obtenemos los campos de este formulario
         t_campos = get_table("CONFIG_CAMPOS")
-        # Filtramos por el Link al Formulario (Esto requiere que 'Formulario' sea un campo Link)
-        # Una forma más segura si no sabemos el nombre exacto del campo link:
-        # Traer todos y filtrar en memoria (si son pocos) o usar la formula correcta.
-        # Asumimos que el campo se llama "Formulario" como en el script.
-        # Formula: ver si el ID del form esta en el array de links.
-        # SEARCH('recID', ARRAYJOIN({Formulario}))
         
-        # Como pyairtable filterByFormula es string:
-        filter_formula = f"OR(SEARCH('{form_id}', ARRAYJOIN({{FORMULARIO}})), SEARCH('{form_id}', ARRAYJOIN({{Formulario}})))"
-        campos_records = t_campos.all(formula=filter_formula)
+        # ESTRATEGIA ROBUSTA: Traer todo y filtrar en memoria (igual que en get_config_formularios)
+        # Esto evita errores 500 si la formula referencia un campo que no existe o si el ID no matchea el nombre.
+        all_campos = t_campos.all()
+        
+        campos_records = []
+        for c_rec in all_campos:
+            c = c_rec["fields"]
+            # Soportar ambas nomenclaturas por seguridad
+            linked_forms = c.get("FORMULARIO") or c.get("Formulario", [])
+            if form_id in linked_forms:
+                campos_records.append(c_rec)
         
         # Construir Mapa: ID Frontend -> Columna Airtable
         # { "foto_dni": "FOTO DNI", "fecha": "FECHA DEL SINIESTRO", ... }
