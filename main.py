@@ -834,9 +834,17 @@ async def create_siniestro(request: Request):
 
         # 2. Obtener Configuración Dinámica (Mapping)
         # Buscamos el formulario por Slug
+        # Buscamos el formulario por Slug
         t_forms = get_table("CONFIG_FORMULARIOS")
-        params = {"filterByFormula": f"{{CODIGO}}='{tipo_formulario}'", "maxRecords": 1}
-        forms_records = t_forms.all(**params)
+        # ESTRATEGIA ROBUSTA: No usar filterByFormula tampoco aqui. 
+        # Traer todo y buscar en loop. Son pocos registros (config).
+        all_forms = t_forms.all()
+        
+        forms_records = []
+        for f in all_forms:
+            if f["fields"].get("CODIGO") == tipo_formulario:
+                forms_records.append(f)
+                break
         
         if not forms_records:
             raise HTTPException(status_code=404, detail=f"Configuración no encontrada para: {tipo_formulario}")
