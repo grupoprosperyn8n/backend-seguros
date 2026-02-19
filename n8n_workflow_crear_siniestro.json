@@ -1,0 +1,188 @@
+{
+  "name": "CREAR_SINIESTRO_DYNAMIC",
+  "_nota": "IMPORTANTE: Al importar en n8n, reemplazar {{AIRTABLE_API_KEY}} con el Bearer token real de Airtable en cada nodo HTTP Request.",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crear-siniestro",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-entry",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/CONFIG_FORMULARIOS",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{AIRTABLE_API_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-formularios",
+      "name": "GET Config Formularios",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/CONFIG_CAMPOS",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{AIRTABLE_API_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-campos",
+      "name": "GET Config Campos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mapear datos din\u00e1micamente\nconst webhookData = $('Webhook').first().json;\nconst tipoFormulario = webhookData.tipo_formulario;\nconst datos = webhookData.datos || {};\nconst archivos = webhookData.archivos || {};\nconst polizaRecordId = webhookData.poliza_record_id;\nconst dni = webhookData.dni;\n\nconst formularios = $('GET Config Formularios').first().json.records || [];\nconst formRecord = formularios.find(f => f.fields.CODIGO === tipoFormulario);\n\nif (!formRecord) {\n  return [{ json: { error: true, message: `Formulario '${tipoFormulario}' no encontrado` } }];\n}\n\nconst formId = formRecord.id;\nconst tablaDestino = formRecord.fields['TABLA RELACIONADA'];\n\nif (!tablaDestino) {\n  return [{ json: { error: true, message: `Sin TABLA RELACIONADA para '${tipoFormulario}'` } }];\n}\n\nconst campos = $('GET Config Campos').first().json.records || [];\nconst fieldMap = {};\n\ncampos.forEach(c => {\n  const fields = c.fields;\n  const linkedForms = fields.FORMULARIO || fields.Formulario || [];\n  if (linkedForms.includes(formId)) {\n    const idCampo = fields['ID CAMPO'];\n    const columna = fields['COLUMNA AIRTABLE'];\n    if (idCampo && columna) {\n      fieldMap[idCampo] = columna;\n    }\n  }\n});\n\nconst airtablePayload = {};\n\nfor (const [key, value] of Object.entries(datos)) {\n  if (fieldMap[key] && value !== '' && value !== null && value !== undefined) {\n    airtablePayload[fieldMap[key]] = value;\n  }\n}\n\nfor (const [key, urls] of Object.entries(archivos)) {\n  if (fieldMap[key] && urls.length > 0) {\n    airtablePayload[fieldMap[key]] = urls;\n  }\n}\n\nif (polizaRecordId) {\n  airtablePayload['POLIZAS'] = [polizaRecordId];\n}\n\nreturn [{ json: { tablaDestino, airtablePayload, dni, error: false } }];\n"
+      },
+      "id": "mapear-datos",
+      "name": "Mapear Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-error",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-error",
+      "name": "Sin Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/CLIENTES",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{AIRTABLE_API_KEY}}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "filterByFormula", "value": "=({DNI}&\"\")=\"{{ $json.dni }}\"" },
+            { "name": "maxRecords", "value": "1" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "buscar-cliente",
+      "name": "Buscar Cliente DNI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $('Mapear Datos').first().json;\nconst payload = { ...prevData.airtablePayload };\n\ntry {\n  const clienteRecords = $('Buscar Cliente DNI').first().json.records || [];\n  if (clienteRecords.length > 0) {\n    payload['CLIENTE'] = [clienteRecords[0].id];\n  }\n} catch(e) {}\n\nreturn [{ json: { tablaDestino: prevData.tablaDestino, payload } }];\n"
+      },
+      "id": "merge-cliente",
+      "name": "Merge Cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.airtable.com/v0/appuhslj3GFf60Tea/{{ $json.tablaDestino }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{AIRTABLE_API_KEY}}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: $json.payload, typecast: true }) }}",
+        "options": {}
+      },
+      "id": "crear-registro",
+      "name": "Crear Registro Airtable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'success', id: $json.id, message: 'Denuncia creada exitosamente' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-ok",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1980, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'error', message: $json.message || 'Error en configuraci\u00f3n' }) }}",
+        "options": { "responseCode": 500 }
+      },
+      "id": "respond-error",
+      "name": "Responder Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1320, 460]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "GET Config Formularios", "type": "main", "index": 0 }]] },
+    "GET Config Formularios": { "main": [[{ "node": "GET Config Campos", "type": "main", "index": 0 }]] },
+    "GET Config Campos": { "main": [[{ "node": "Mapear Datos", "type": "main", "index": 0 }]] },
+    "Mapear Datos": { "main": [[{ "node": "Sin Error?", "type": "main", "index": 0 }]] },
+    "Sin Error?": { "main": [[{ "node": "Buscar Cliente DNI", "type": "main", "index": 0 }], [{ "node": "Responder Error", "type": "main", "index": 0 }]] },
+    "Buscar Cliente DNI": { "main": [[{ "node": "Merge Cliente", "type": "main", "index": 0 }]] },
+    "Merge Cliente": { "main": [[{ "node": "Crear Registro Airtable", "type": "main", "index": 0 }]] },
+    "Crear Registro Airtable": { "main": [[{ "node": "Responder OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
