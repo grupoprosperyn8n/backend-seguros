@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI()
-# Force Deploy v2
+# Force Deploy v3 - FIX n8n
 
 # Configuración CORS
 app.add_middleware(
@@ -797,7 +797,7 @@ async def get_config_formularios():
 
 
 # ==============================================================================
-# CREACIÓN DE SINIESTRO
+# CRECIÓN DE SINIESTRO
 # ==============================================================================
 
 # ==============================================================================
@@ -805,6 +805,7 @@ async def get_config_formularios():
 # ==============================================================================
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "https://primary-production-0abcf.up.railway.app")
 N8N_WEBHOOK_SINIESTRO = f"{N8N_BASE_URL}/webhook/crear-siniestro"
+
 
 
 class SiniestroRequest(BaseModel):
