@@ -882,12 +882,33 @@ async def create_siniestro(request: Request):
 
         # 5. Reenviar respuesta de n8n al frontend
         if response.status_code == 200:
-            n8n_data = response.json()
-            return {
-                "status": n8n_data.get("status", "success"),
-                "id": n8n_data.get("id", "N/A"),
-                "message": n8n_data.get("message", "Denuncia procesada")
-            }
+            try:
+                # Intentar parsear respuesta JSON de n8n
+                if response.content:
+                    n8n_data = response.json()
+                    status = n8n_data.get("status", "success")
+                    id_res = n8n_data.get("id", "N/A")
+                    msg = n8n_data.get("message", "Denuncia procesada")
+                else:
+                    # n8n respondió 200 OK pero vacío (sucede a veces si no llega al nodo Response)
+                    print("⚠️ Alerta: n8n respondió 200 OK pero el cuerpo está vacío.")
+                    status = "success"
+                    id_res = "N/A"
+                    msg = "Denuncia enviada a n8n (sin confirmación JSON)"
+
+                return {
+                    "status": status,
+                    "id": id_res,
+                    "message": msg
+                }
+            except Exception as e:
+                print(f"⚠️ Error parseando respuesta n8n: {e}")
+                # Fallback para no romper el flujo
+                return {
+                    "status": "success",
+                    "id": "unknown",
+                    "message": "Enviado a n8n (respuesta no estándar)"
+                }
         else:
             # n8n respondió con error
             try:
