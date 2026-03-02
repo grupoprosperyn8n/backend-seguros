@@ -37,9 +37,11 @@ def get_drive_service():
 
     return build('drive', 'v3', credentials=creds)
 
-async def upload_file_to_drive(file: UploadFile, folder_id: str = None) -> str:
+async def upload_file_to_drive(file: UploadFile, folder_id: str = None) -> dict:
     """
-    Sube un archivo (UploadFile de FastAPI) a Google Drive y retorna el link de vista.
+    Sube un archivo (UploadFile de FastAPI) a Google Drive.
+    Hace el archivo público para que Airtable pueda descargarlo como attachment.
+    Retorna dict con url directa de descarga (para Airtable attachments).
     """
     service = get_drive_service()
     if not service:
@@ -67,10 +69,27 @@ async def upload_file_to_drive(file: UploadFile, folder_id: str = None) -> str:
             fields='id, webViewLink, webContentLink'
         ).execute()
         
-        print(f"✅ Archivo subido a Drive ID: {file_drive.get('id')}")
+        file_id = file_drive.get('id')
+        print(f"✅ Archivo subido a Drive ID: {file_id}")
         
-        # Retornar link visible
-        return file_drive.get('webViewLink')
+        # Hacer el archivo público (necesario para que Airtable descargue la imagen)
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={'type': 'anyone', 'role': 'reader'},
+                fields='id'
+            ).execute()
+            print(f"🔓 Archivo {file_id} hecho público")
+        except Exception as e:
+            print(f"⚠️ No se pudo hacer público el archivo: {e}")
+        
+        # URL directa de descarga (Airtable la usa para crear el attachment real)
+        direct_url = f"https://drive.google.com/uc?id={file_id}&export=download"
+        
+        return {
+            "url": direct_url,
+            "filename": file.filename
+        }
 
     except Exception as e:
         print(f"❌ Error subiendo a Drive: {e}")

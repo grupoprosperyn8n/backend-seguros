@@ -797,131 +797,235 @@ async def get_config_formularios():
 
 
 # ==============================================================================
-# CRECIÓN DE SINIESTRO
+# CREACIÓN DE SINIESTRO (Python Puro — Sin n8n)
 # ==============================================================================
 
-# ==============================================================================
-# URL DEL WEBHOOK N8N PARA CREAR SINIESTROS (100% DINÁMICO)
-# ==============================================================================
-N8N_BASE_URL = os.getenv("N8N_BASE_URL", "https://primary-production-0abcf.up.railway.app")
-N8N_WEBHOOK_SINIESTRO = f"{N8N_BASE_URL}/webhook/crear-siniestro"
+def _generar_id_gestion(tabla_destino: str) -> str:
+    """
+    Genera un ID de gestión único para un siniestro.
+    Formato: SIN-2026-0001 (año + secuencial por tabla)
+    """
+    now = datetime.now()
+    year = now.strftime("%Y")
+    
+    # Intentar obtener el último ID de la tabla para continuar la secuencia
+    try:
+        t = get_table(tabla_destino)
+        if t:
+            # Buscar registros con ID_GESTION_UNICO que empiece con SIN-{year}
+            records = t.all(
+                formula=f"SEARCH('SIN-{year}', {{ID_GESTION_UNICO}})",
+                fields=["ID_GESTION_UNICO"],
+                sort=["ID_GESTION_UNICO"]
+            )
+            if records:
+                # Extraer el número más alto
+                max_num = 0
+                for r in records:
+                    gid = r["fields"].get("ID_GESTION_UNICO", "")
+                    try:
+                        num = int(gid.split("-")[-1])
+                        if num > max_num:
+                            max_num = num
+                    except:
+                        continue
+                return f"SIN-{year}-{str(max_num + 1).zfill(4)}"
+    except Exception as e:
+        print(f"⚠️ Error generando ID secuencial: {e}")
+    
+    # Fallback: timestamp único
+    ts = now.strftime("%m%d%H%M")
+    return f"SIN-{year}-{ts}"
 
-
-
-class SiniestroRequest(BaseModel):
-    tipo_formulario: str
-    poliza_record_id: str
-    datos: dict
-    dni: Optional[str] = None
-    patente: Optional[str] = None
 
 @app.post("/api/create-siniestro")
 async def create_siniestro(request: Request):
     """
-    Crea un registro de siniestro.
-    Estrategia: Python sube archivos a Drive, luego delega a n8n 
-    para lectura de config dinámica y escritura en Airtable.
+    Crea un registro de siniestro directamente en Airtable.
+    Flujo: Parsea datos → Sube archivos a Drive → Lee config dinámica → Mapea campos → Escribe en Airtable.
+    100% Python, sin dependencia de n8n.
     """
-    import httpx
-    
     try:
-        # 1. Parsear FormData
+        # ==================================================================
+        # 1. PARSEAR FORMDATA
+        # ==================================================================
         form_data = await request.form()
         tipo_formulario = form_data.get("tipo_formulario")
         poliza_record_id = form_data.get("poliza_record_id")
         dni = form_data.get("dni")
         datos_json = form_data.get("datos")
 
-        print(f"📝 create_siniestro v3 (n8n): {tipo_formulario}")
+        print(f"📝 create_siniestro v4 (Python puro): {tipo_formulario}")
 
         if not tipo_formulario or not datos_json:
-            raise HTTPException(status_code=400, detail="Datos incompletos")
+            raise HTTPException(status_code=400, detail="Datos incompletos: falta tipo_formulario o datos")
 
         try:
             datos_dict = json.loads(datos_json)
         except:
-            raise HTTPException(status_code=400, detail="JSON inválido")
+            raise HTTPException(status_code=400, detail="JSON de datos inválido")
 
-        # 2. Subir TODOS los archivos a Google Drive
-        # Iteramos form_data buscando UploadFile instances
-        archivos_subidos = {}  # { campo_id: [{url: "..."}] }
+        # ==================================================================
+        # 2. SUBIR ARCHIVOS A GOOGLE DRIVE
+        # ==================================================================
+        archivos_subidos = {}  # { campo_id: [{"url": "...", "filename": "..."}] }
         
         for key in form_data:
             items = form_data.getlist(key)
             for item in items:
                 if isinstance(item, UploadFile) and item.filename and item.size and item.size > 0:
                     print(f"📂 Subiendo archivo '{key}': {item.filename}")
-                    link = await upload_file_to_drive(item)
-                    if link:
+                    result = await upload_file_to_drive(item)
+                    if result:
                         if key not in archivos_subidos:
                             archivos_subidos[key] = []
-                        archivos_subidos[key].append({"url": link})
+                        archivos_subidos[key].append(result)
 
-        # 3. Construir JSON limpio para n8n
-        n8n_payload = {
-            "tipo_formulario": tipo_formulario,
-            "datos": datos_dict,
-            "archivos": archivos_subidos,
-            "poliza_record_id": poliza_record_id,
-            "dni": dni
-        }
+        print(f"   📎 Archivos subidos: {list(archivos_subidos.keys())}")
 
-        print(f"🚀 Delegando a n8n: {N8N_WEBHOOK_SINIESTRO}")
-        print(f"   Payload keys: {list(n8n_payload.keys())}")
-        print(f"   Archivos subidos: {list(archivos_subidos.keys())}")
+        # ==================================================================
+        # 3. LEER CONFIGURACIÓN DINÁMICA DE AIRTABLE
+        # ==================================================================
+        t_forms = get_table("CONFIG_FORMULARIOS")
+        t_campos = get_table("CONFIG_CAMPOS")
+        
+        if not t_forms or not t_campos:
+            raise HTTPException(status_code=500, detail="Error de configuración: tablas CONFIG no disponibles")
 
-        # 4. Llamar al webhook de n8n
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                N8N_WEBHOOK_SINIESTRO,
-                json=n8n_payload,
-                headers={"Content-Type": "application/json"}
+        # Buscar el formulario por CODIGO
+        forms_records = t_forms.all()
+        form_record = None
+        for f_rec in forms_records:
+            if f_rec["fields"].get("CODIGO") == tipo_formulario:
+                form_record = f_rec
+                break
+        
+        if not form_record:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Formulario '{tipo_formulario}' no encontrado en CONFIG_FORMULARIOS"
             )
 
-        print(f"📨 Respuesta n8n: {response.status_code}")
+        form_id = form_record["id"]
+        tabla_destino = form_record["fields"].get("TABLA RELACIONADA")
+        
+        if not tabla_destino:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Formulario '{tipo_formulario}' no tiene TABLA RELACIONADA configurada"
+            )
 
-        # 5. Reenviar respuesta de n8n al frontend
-        if response.status_code == 200:
+        print(f"   📋 Formulario: {tipo_formulario} → Tabla: {tabla_destino}")
+
+        # ==================================================================
+        # 4. MAPEAR DATOS DEL FORMULARIO A COLUMNAS AIRTABLE
+        # ==================================================================
+        campos_records = t_campos.all()
+        
+        # Construir mapa: id_campo_frontend → columna_airtable
+        field_map = {}
+        for c_rec in campos_records:
+            c = c_rec["fields"]
+            linked_forms = c.get("FORMULARIO") or c.get("Formulario", [])
+            if form_id in linked_forms:
+                id_campo = c.get("ID CAMPO")
+                columna = c.get("COLUMNA AIRTABLE")
+                if id_campo and columna:
+                    field_map[id_campo] = columna
+
+        print(f"   🗺️ Campos mapeados: {field_map}")
+
+        # Construir payload para Airtable
+        airtable_payload = {}
+        
+        # 4a. Mapear datos de texto/selects/etc.
+        for campo_id, valor in datos_dict.items():
+            if campo_id in field_map and valor not in (None, "", []):
+                airtable_payload[field_map[campo_id]] = valor
+
+        # 4b. Mapear archivos (como attachments de Airtable)
+        for campo_id, archivos in archivos_subidos.items():
+            if campo_id in field_map and archivos:
+                # Formato Airtable: [{"url": "https://..."}, {"url": "https://..."}]
+                airtable_payload[field_map[campo_id]] = archivos
+
+        # 4c. Vincular póliza
+        if poliza_record_id:
+            airtable_payload["POLIZAS"] = [poliza_record_id]
+
+        # ==================================================================
+        # 5. BUSCAR CLIENTE POR DNI Y VINCULAR
+        # ==================================================================
+        if dni:
             try:
-                # Intentar parsear respuesta JSON de n8n
-                if response.content:
-                    n8n_data = response.json()
-                    status = n8n_data.get("status", "success")
-                    id_res = n8n_data.get("id", "N/A")
-                    msg = n8n_data.get("message", "Denuncia procesada")
-                else:
-                    # n8n respondió 200 OK pero vacío (sucede a veces si no llega al nodo Response)
-                    print("⚠️ Alerta: n8n respondió 200 OK pero el cuerpo está vacío.")
-                    status = "success"
-                    id_res = "N/A"
-                    msg = "Denuncia enviada a n8n (sin confirmación JSON)"
-
-                return {
-                    "status": status,
-                    "id": id_res,
-                    "message": msg
-                }
+                t_clientes = get_table("CLIENTES")
+                if t_clientes:
+                    dni_limpio = "".join(filter(str.isdigit, str(dni)))
+                    formula = f'({{DNI}} & "") = "{dni_limpio}"'
+                    cliente_records = t_clientes.all(formula=formula, max_records=1)
+                    if cliente_records:
+                        airtable_payload["CLIENTE"] = [cliente_records[0]["id"]]
+                        print(f"   👤 Cliente vinculado: {cliente_records[0]['id']}")
             except Exception as e:
-                print(f"⚠️ Error parseando respuesta n8n: {e}")
-                # Fallback para no romper el flujo
-                return {
-                    "status": "success",
-                    "id": "unknown",
-                    "message": "Enviado a n8n (respuesta no estándar)"
-                }
-        else:
-            # n8n respondió con error
-            try:
-                error_data = response.json()
-                error_msg = error_data.get("message", f"n8n respondió con status {response.status_code}")
-            except:
-                error_msg = f"n8n respondió con status {response.status_code}"
+                print(f"   ⚠️ Error buscando cliente: {e}")
+
+
+        # ==================================================================
+        # 6. AGREGAR CAMPOS AUTOMÁTICOS
+        # ==================================================================
+        
+        # ID de gestión único ya NO se genera acá porque es un campo FÓRMULA en Airtable
+        # Airtable lo genera automáticamente basándose en otros campos vinculados
+        
+        # Estado web
+        airtable_payload["ESTADO_WEB"] = "NUEVO WEB"
+        
+        print(f"   📦 Payload Airtable keys: {list(airtable_payload.keys())}")
+
+        # ==================================================================
+        # 7. CREAR REGISTRO EN AIRTABLE
+        # ==================================================================
+        t_destino = get_table(tabla_destino)
+        if not t_destino:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"No se pudo conectar a la tabla '{tabla_destino}'"
+            )
+
+        try:
+            # typecast=True para que Airtable convierta tipos automáticamente
+            # (ej: string "14" → number 14 si el campo es Number)
+            record = t_destino.create(airtable_payload, typecast=True)
+            record_id = record.get("id", "N/A")
             
-            print(f"❌ Error n8n: {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
+            # Obtener el ID de gestión generado por Airtable (fórmula)
+            id_gestion = record.get("fields", {}).get("ID_GESTION_UNICO", record_id)
+            
+            print(f"✅ Siniestro creado exitosamente: {record_id} ({id_gestion})")
+            
+            return {
+                "status": "success",
+                "id": id_gestion,
+                "record_id": record_id,
+                "message": f"Denuncia registrada exitosamente. Tu número de gestión es {id_gestion}."
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Error creando registro en Airtable: {error_msg}")
+            
+            # Dar info útil para debugging
+            if "Unknown field name" in error_msg:
+                # Extraer nombre del campo problemático
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Campo no encontrado en tabla '{tabla_destino}'. Verificar COLUMNA AIRTABLE en CONFIG_CAMPOS. Error: {error_msg}"
+                )
+            raise HTTPException(status_code=500, detail=f"Error guardando denuncia: {error_msg}")
+
 
     except HTTPException:
-        raise  # Re-lanzar HTTPExceptions directamente
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
