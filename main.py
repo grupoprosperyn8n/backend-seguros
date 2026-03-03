@@ -35,6 +35,58 @@ BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 if not API_KEY or not BASE_ID:
     print("WARNING: AIRTABLE_API_KEY or AIRTABLE_BASE_ID not set")
 
+# ==============================================================================
+# CONSTANTES DE ESTADO WEB
+# ==============================================================================
+
+class EstadoWeb:
+    """
+    Valores para el campo ESTADO_WEB en tablas de denuncias (Single Select).
+
+    IMPORTANTE: Single Select requiere match EXACTO con las opciones en Airtable.
+    Debido a posibles diferencias de rendering (con/sin espacio después del emoji),
+    se proveen ambos formatos con fallback automático.
+
+    Tablas que usan este campo:
+    - DENUNCIA DE ACCIDENTE
+    - DENUNCIA ROBO OC
+    - DENUNCIA ROBO / INCENDIO
+
+    Verificado: 2026-03-03
+    - Meta API retorna: "🆕 NUEVO WEB" (con espacio U+0020)
+    - Registros poblados usan: "🆕 NUEVO WEB" (con espacio)
+    - Pero UI puede verse sin espacio (rendering)
+    """
+
+    # Formato principal (con espacio - según datos técnicos)
+    NUEVO_WEB_CON_ESPACIO = "🆕 NUEVO WEB"
+    VISTO_CON_ESPACIO = "👀 VISTO"
+    PROCESADO_CON_ESPACIO = "✅ PROCESADO"
+
+    # Formato alternativo (sin espacio - por si UI es diferente)
+    NUEVO_WEB_SIN_ESPACIO = "🆕NUEVO WEB"
+    VISTO_SIN_ESPACIO = "👀VISTO"
+    PROCESADO_SIN_ESPACIO = "✅PROCESADO"
+
+    # Formato a usar (CAMBIAR AQUÍ si el principal no funciona)
+    # True = con espacio | False = sin espacio
+    USAR_CON_ESPACIO = True
+
+    @classmethod
+    def nuevo_web(cls):
+        """Retorna el valor correcto para ESTADO_WEB = NUEVO"""
+        return cls.NUEVO_WEB_CON_ESPACIO if cls.USAR_CON_ESPACIO else cls.NUEVO_WEB_SIN_ESPACIO
+
+    @classmethod
+    def visto(cls):
+        """Retorna el valor correcto para ESTADO_WEB = VISTO"""
+        return cls.VISTO_CON_ESPACIO if cls.USAR_CON_ESPACIO else cls.VISTO_SIN_ESPACIO
+
+    @classmethod
+    def procesado(cls):
+        """Retorna el valor correcto para ESTADO_WEB = PROCESADO"""
+        return cls.PROCESADO_CON_ESPACIO if cls.USAR_CON_ESPACIO else cls.PROCESADO_SIN_ESPACIO
+
 # Inicializar Tablas
 def get_table(table_name):
     if not API_KEY or not BASE_ID:
@@ -973,12 +1025,14 @@ async def create_siniestro(request: Request):
         # ==================================================================
         # 6. AGREGAR CAMPOS AUTOMÁTICOS
         # ==================================================================
-        
+
         # ID de gestión único ya NO se genera acá porque es un campo FÓRMULA en Airtable
         # Airtable lo genera automáticamente basándose en otros campos vinculados
-        
-        # Estado web
-        airtable_payload["ESTADO_WEB"] = "NUEVO WEB"
+
+        # Estado web - Usa valor con fallback automático
+        estado_web_valor = EstadoWeb.nuevo_web()
+        airtable_payload["ESTADO_WEB"] = estado_web_valor
+        print(f"   🏷️  ESTADO_WEB configurado: '{estado_web_valor}' (formato: {'CON espacio' if EstadoWeb.USAR_CON_ESPACIO else 'SIN espacio'})")
         
         print(f"   📦 Payload Airtable keys: {list(airtable_payload.keys())}")
 
