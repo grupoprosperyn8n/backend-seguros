@@ -933,22 +933,28 @@ async def create_siniestro(request: Request):
         # 2. SUBIR ARCHIVOS A GOOGLE DRIVE
         # ==================================================================
         archivos_subidos = {}  # { campo_id: [{"url": "...", "filename": "..."}] }
-        
+        archivos_fallidos = []  # archivos que no se pudieron subir a Drive
+
         for key in form_data:
             items = form_data.getlist(key)
             for item in items:
-                # Nota: item.size puede ser None en Starlette si no viene en el header del multipart
-                # Por eso chequeamos solo item.filename (un archivo vacío tendría filename vacío o "")
-                file_size = item.size or 0
-                if isinstance(item, UploadFile) and item.filename and file_size >= 0:
-                    print(f"📂 Subiendo archivo '{key}': {item.filename}")
+                # IMPORTANTE: chequear isinstance ANTES de acceder .size
+                # item puede ser un str (campo de texto) y no tiene atributo .size
+                if isinstance(item, UploadFile) and item.filename:
+                    file_size = item.size or 0  # size puede ser None en algunas versiones de Starlette
+                    print(f"📂 Procesando archivo '{key}': {item.filename} ({file_size} bytes)")
                     result = await upload_file_to_drive(item)
                     if result:
                         if key not in archivos_subidos:
                             archivos_subidos[key] = []
                         archivos_subidos[key].append(result)
+                        print(f"   \u2705 Subido exitosamente: {item.filename}")
+                    else:
+                        archivos_fallidos.append(item.filename)
+                        print(f"   \u274c Falló subida a Drive: {item.filename}")
 
-        print(f"   📎 Archivos subidos: {list(archivos_subidos.keys())}")
+        archivos_ok = list(archivos_subidos.keys())
+        print(f"   📎 Archivos OK: {archivos_ok} | Fallidos: {archivos_fallidos}")
 
         # ==================================================================
         # 3. LEER CONFIGURACIÓN DINÁMICA DE AIRTABLE
@@ -1076,8 +1082,12 @@ async def create_siniestro(request: Request):
                 "status": "success",
                 "id": id_gestion,
                 "record_id": record_id,
-                "message": f"Denuncia registrada exitosamente. Tu número de gestión es {id_gestion}."
+                "message": f"Denuncia registrada exitosamente. Tu número de gestión es {id_gestion}.",
+                "archivos_subidos": len(archivos_subidos),
+                "archivos_fallidos": archivos_fallidos,
+                "files_status": "ok" if not archivos_fallidos else "partial"
             }
+
             
         except Exception as e:
             error_msg = str(e)
