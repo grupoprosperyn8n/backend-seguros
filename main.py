@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pyairtable import Table, Api
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import httpx
+
 
 load_dotenv()
 
@@ -929,32 +931,24 @@ async def create_siniestro(request: Request):
             print(f"Error parseando JSON de siniestro: {e}")
             raise HTTPException(status_code=400, detail="JSON de datos inválido")
 
-        # ==================================================================
-        # 2. SUBIR ARCHIVOS A GOOGLE DRIVE
-        # ==================================================================
-        archivos_subidos = {}  # { campo_id: [{"url": "...", "filename": "..."}] }
-        archivos_fallidos = []  # archivos que no se pudieron subir a Drive
+        # Recolectar archivos para subir después (Airtable Content API requiere Record ID)
+        archivos_para_subir = {}  # { campo_airtable: [UploadFile] }
+        archivos_fallidos = []
 
         for key in form_data:
             items = form_data.getlist(key)
             for item in items:
-                # IMPORTANTE: chequear isinstance ANTES de acceder .size
-                # item puede ser un str (campo de texto) y no tiene atributo .size
                 if isinstance(item, UploadFile) and item.filename:
-                    file_size = item.size or 0  # size puede ser None en algunas versiones de Starlette
-                    print(f"📂 Procesando archivo '{key}': {item.filename} ({file_size} bytes)")
-                    result = await upload_file_to_drive(item)
-                    if result:
-                        if key not in archivos_subidos:
-                            archivos_subidos[key] = []
-                        archivos_subidos[key].append(result)
-                        print(f"   \u2705 Subido exitosamente: {item.filename}")
+                    # Encontrar el nombre de columna en Airtable para este campo
+                    columna = field_map.get(key)
+                    if columna:
+                        if columna not in archivos_para_subir:
+                            archivos_para_subir[columna] = []
+                        archivos_para_subir[columna].append(item)
+                        print(f"📂 Recolectado para subir: {key} ({item.filename}) -> {columna}")
                     else:
-                        archivos_fallidos.append(item.filename)
-                        print(f"   \u274c Falló subida a Drive: {item.filename}")
+                        print(f"⚠️ Campo de archivo '{key}' no mapeado en CONFIG_CAMPOS")
 
-        archivos_ok = list(archivos_subidos.keys())
-        print(f"   📎 Archivos OK: {archivos_ok} | Fallidos: {archivos_fallidos}")
 
         # ==================================================================
         # 3. LEER CONFIGURACIÓN DINÁMICA DE AIRTABLE
@@ -1075,18 +1069,55 @@ async def create_siniestro(request: Request):
             
             # Obtener el ID de gestión generado por Airtable (fórmula)
             id_gestion = record.get("fields", {}).get("ID_GESTION_UNICO", record_id)
-            
             print(f"✅ Siniestro creado exitosamente: {record_id} ({id_gestion})")
+
+            # ==================================================================
+            # 8. SUBIR ARCHIVOS VIA AIRTABLE CONTENT API
+            # ==================================================================
+            # https://content.airtable.com/v0/{baseId}/{tableIdOrName}/{recordId}/{fieldIdOrName}/uploadAttachment
+            total_subidos = 0
             
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for columna, uploads in archivos_para_subir.items():
+                    for up_file in uploads:
+                        try:
+                            # Re-leer contenido (por si acaso se leyó antes, aunque aquí no debería)
+                            await up_file.seek(0)
+                            content = await up_file.read()
+                            
+                            print(f"🚀 Subiendo a Content API: {up_file.filename} -> {columna}")
+                            
+                            # Encode table name for URL
+                            # Note: tabla_destino and columna are strings
+                            url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_destino}/{record_id}/{columna}/uploadAttachment"
+                            
+                            # Content API requires Multipart
+                            files = {"file": (up_file.filename, content, up_file.content_type or "image/jpeg")}
+                            headers = {"Authorization": f"Bearer {API_KEY}"}
+                            
+                            resp = await client.post(url, headers=headers, files=files)
+                            
+                            if resp.status_code in (200, 201):
+                                total_subidos += 1
+                                print(f"   ✅ Subido OK: {up_file.filename}")
+                            else:
+                                archivos_fallidos.append(up_file.filename)
+                                print(f"   ❌ Error Content API ({resp.status_code}): {resp.text}")
+                                
+                        except Exception as upload_err:
+                            archivos_fallidos.append(up_file.filename)
+                            print(f"   ❌ Excepción subiendo {up_file.filename}: {upload_err}")
+
             return {
                 "status": "success",
                 "id": id_gestion,
                 "record_id": record_id,
                 "message": f"Denuncia registrada exitosamente. Tu número de gestión es {id_gestion}.",
-                "archivos_subidos": len(archivos_subidos),
+                "archivos_subidos": total_subidos,
                 "archivos_fallidos": archivos_fallidos,
-                "files_status": "ok" if not archivos_fallidos else "partial"
+                "files_status": "ok" if not archivos_fallidos and total_subidos > 0 else ("none" if total_subidos == 0 and not archivos_fallidos else "partial")
             }
+
 
             
         except Exception as e:
