@@ -22,9 +22,15 @@ app = FastAPI()
 # Configuración CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "https://seguros-app-linktree.surge.sh",
+        "https://login-agentico-1770227340.surge.sh",
+        "https://registro-agentico-1770227370.surge.sh"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -326,7 +332,8 @@ async def validar_cliente(dni: str, patente: str):
                         if patente_buscada in str_fields:
                             record_id_poliza = pid
                             break
-                    except:
+                    except Exception as e:
+                        print(f"Error parseando póliza {pid}: {e}")
                         continue
         except Exception as e:
             print(f"Error fetching poliza details: {e}")
@@ -412,7 +419,8 @@ async def get_testimonios():
             elif days < 7: texto_tiempo = f"Hace {days} días"
             elif days < 30: texto_tiempo = f"Hace {days // 7} semanas"
             else: texto_tiempo = f"Hace {days // 30} meses"
-        except:
+        except Exception as e:
+            print(f"Error calculando tiempo relativo de siniestro {date_str}: {e}")
             texto_tiempo = "Reciente"
             is_recent = False 
 
@@ -524,7 +532,8 @@ async def get_average_rating():
     formula = "AND({VISIBLE}=TRUE(), {ESTRELLAS}>0)"
     try:
         records = table_calif.all(formula=formula, fields=["ESTRELLAS"])
-    except:
+    except Exception as e:
+        print(f"Error obteniendo calificaciones: {e}")
         return {"rating": 0, "total": 0}
         
     if not records:
@@ -740,7 +749,8 @@ async def validate_siniestro(dni: str, patente: str):
                         if patente_limpia in str_fields:
                             record_id_poliza = pid
                             break
-                    except:
+                    except Exception as e:
+                        print(f"Error al analizar póliza con patente_limpia: {e}")
                         continue
         except Exception as e:
             print(f"Error fetching poliza details: {e}")
@@ -879,7 +889,8 @@ def _generar_id_gestion(tabla_destino: str) -> str:
                         num = int(gid.split("-")[-1])
                         if num > max_num:
                             max_num = num
-                    except:
+                    except Exception as e:
+                        print(f"Error parseando numero de gestión secuencial: {e}")
                         continue
                 return f"SIN-{year}-{str(max_num + 1).zfill(4)}"
     except Exception as e:
@@ -914,7 +925,8 @@ async def create_siniestro(request: Request):
 
         try:
             datos_dict = json.loads(datos_json)
-        except:
+        except Exception as e:
+            print(f"Error parseando JSON de siniestro: {e}")
             raise HTTPException(status_code=400, detail="JSON de datos inválido")
 
         # ==================================================================
