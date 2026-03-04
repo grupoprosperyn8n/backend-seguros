@@ -937,7 +937,10 @@ async def create_siniestro(request: Request):
         for key in form_data:
             items = form_data.getlist(key)
             for item in items:
-                if isinstance(item, UploadFile) and item.filename and item.size and item.size > 0:
+                # Nota: item.size puede ser None en Starlette si no viene en el header del multipart
+                # Por eso chequeamos solo item.filename (un archivo vacío tendría filename vacío o "")
+                file_size = item.size or 0
+                if isinstance(item, UploadFile) and item.filename and file_size >= 0:
                     print(f"📂 Subiendo archivo '{key}': {item.filename}")
                     result = await upload_file_to_drive(item)
                     if result:
