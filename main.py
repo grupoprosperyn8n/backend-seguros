@@ -931,25 +931,6 @@ async def create_siniestro(request: Request):
             print(f"Error parseando JSON de siniestro: {e}")
             raise HTTPException(status_code=400, detail="JSON de datos inválido")
 
-        # Recolectar archivos para subir después (Airtable Content API requiere Record ID)
-        archivos_para_subir = {}  # { campo_airtable: [UploadFile] }
-        archivos_fallidos = []
-
-        for key in form_data:
-            items = form_data.getlist(key)
-            for item in items:
-                if isinstance(item, UploadFile) and item.filename:
-                    # Encontrar el nombre de columna en Airtable para este campo
-                    columna = field_map.get(key)
-                    if columna:
-                        if columna not in archivos_para_subir:
-                            archivos_para_subir[columna] = []
-                        archivos_para_subir[columna].append(item)
-                        print(f"📂 Recolectado para subir: {key} ({item.filename}) -> {columna}")
-                    else:
-                        print(f"⚠️ Campo de archivo '{key}' no mapeado en CONFIG_CAMPOS")
-
-
         # ==================================================================
         # 3. LEER CONFIGURACIÓN DINÁMICA DE AIRTABLE
         # ==================================================================
@@ -987,10 +968,9 @@ async def create_siniestro(request: Request):
         # ==================================================================
         # 4. MAPEAR DATOS DEL FORMULARIO A COLUMNAS AIRTABLE
         # ==================================================================
-        campos_records = t_campos.all()
-        
         # Construir mapa: id_campo_frontend → columna_airtable
         field_map = {}
+        campos_records = t_campos.all()
         for c_rec in campos_records:
             c = c_rec["fields"]
             linked_forms = c.get("FORMULARIO") or c.get("Formulario", [])
@@ -1002,6 +982,24 @@ async def create_siniestro(request: Request):
 
         print(f"   🗺️ Campos mapeados: {field_map}")
 
+        # Recolectar archivos para subir después (Airtable Content API requiere Record ID)
+        archivos_para_subir = {}  # { columna_airtable: [UploadFile] }
+        archivos_fallidos = []
+
+        for key in form_data:
+            items = form_data.getlist(key)
+            for item in items:
+                if isinstance(item, UploadFile) and item.filename:
+                    # Encontrar el nombre de columna en Airtable para este campo
+                    columna = field_map.get(key)
+                    if columna:
+                        if columna not in archivos_para_subir:
+                            archivos_para_subir[columna] = []
+                        archivos_para_subir[columna].append(item)
+                        print(f"📂 Recolectado para subir: {key} ({item.filename}) -> {columna}")
+                    else:
+                        print(f"⚠️ Campo de archivo '{key}' no mapeado en CONFIG_CAMPOS")
+
         # Construir payload para Airtable
         airtable_payload = {}
         
@@ -1009,12 +1007,6 @@ async def create_siniestro(request: Request):
         for campo_id, valor in datos_dict.items():
             if campo_id in field_map and valor not in (None, "", []):
                 airtable_payload[field_map[campo_id]] = valor
-
-        # 4b. Mapear archivos (como attachments de Airtable)
-        for campo_id, archivos in archivos_subidos.items():
-            if campo_id in field_map and archivos:
-                # Formato Airtable: [{"url": "https://..."}, {"url": "https://..."}]
-                airtable_payload[field_map[campo_id]] = archivos
 
         # 4c. Vincular póliza
         if poliza_record_id:
