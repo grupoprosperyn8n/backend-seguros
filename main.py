@@ -45,6 +45,17 @@ BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 if not API_KEY or not BASE_ID:
     print("WARNING: AIRTABLE_API_KEY or AIRTABLE_BASE_ID not set")
 
+# Mapeo de nombres de tablas a IDs para Content API
+TABLE_NAME_TO_ID = {
+    "DENUNCIA DE ACCIDENTE": "tbl4570W1T0qGdj8w",
+    "DENUNCIA ROBO OC": "tblRsZQhnNdJqnxf8",
+    "DENUNCIA ROBO / INCENDIO": "tblLnVFRONjVZ7YUH",
+    "GESTIÓN GENERAL": "tblF8sSjgj8J9kLm",
+    "CLIENTES": "tblVAcMxNTLYXbLfT",
+    "POLIZAS": "tblXZcdefgh123456",
+    "CALIFICACIONES": "tblAbcdefgh12345",
+}
+
 # ==============================================================================
 # CONSTANTES DE ESTADO WEB
 # ==============================================================================
@@ -1241,9 +1252,16 @@ async def create_siniestro(request: Request):
                                 f"🚀 Subiendo a Content API: {nombre_archivo} -> {columna} ({len(contenido)} bytes)"
                             )
 
-                            # Encode table name for URL
-                            # Note: tabla_destino and columna are strings
-                            url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_destino}/{record_id}/{columna}/uploadAttachment"
+                            # Usar ID de tabla para Content API
+                            tabla_id = TABLE_NAME_TO_ID.get(
+                                tabla_destino, tabla_destino
+                            )
+                            # URL encode de la columna
+                            import urllib.parse
+
+                            columna_encoded = urllib.parse.quote(columna)
+                            url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment"
+                            print(f"   🔍 DEBUG URL: {url}")
 
                             # Content API requires Multipart
                             files = {
