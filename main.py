@@ -1275,7 +1275,7 @@ async def create_siniestro(request: Request):
 
                             # Subir a ImgBB
                             imgbb_url = "https://api.imgbb.com/1/upload"
-                            imgbb_key = "d36eb6591370ae7f9089d85875571358"  # API key pública gratuita
+                            imgbb_key = "6b042638d61c152b076d88dae24d0200"  # API key del usuario
 
                             try:
                                 imgbb_data = {
