@@ -1098,8 +1098,23 @@ async def create_siniestro(request: Request):
             )
 
             for item in items:
-                # Verificar si es un archivo (UploadFile)
-                if isinstance(item, UploadFile) and item.filename:
+                # Verificar si es un archivo de manera más robusta
+                # FastAPI puede devolver UploadFile o puede haber sido leído
+                es_archivo = False
+                nombre_archivo = ""
+
+                if hasattr(item, "filename") and item.filename:
+                    es_archivo = True
+                    nombre_archivo = item.filename
+                elif isinstance(item, str) and key in field_map:
+                    # Si es string, no es archivo
+                    es_archivo = False
+
+                print(
+                    f"   🔍 DEBUG: item es archivo: {es_archivo}, filename: {nombre_archivo}"
+                )
+
+                if es_archivo and nombre_archivo:
                     # Encontrar el nombre de columna en Airtable para este campo
                     columna = field_map.get(key)
                     print(f"   🔍 DEBUG: Mapeo encontrado: '{key}' -> '{columna}'")
@@ -1108,7 +1123,7 @@ async def create_siniestro(request: Request):
                             archivos_para_subir[columna] = []
                         archivos_para_subir[columna].append(item)
                         print(
-                            f"📂 Recolectado para subir: {key} ({item.filename}) -> {columna}"
+                            f"📂 Recolectado para subir: {key} ({nombre_archivo}) -> {columna}"
                         )
                     else:
                         print(
@@ -1182,19 +1197,48 @@ async def create_siniestro(request: Request):
             # ==================================================================
             # 8. SUBIR ARCHIVOS VIA AIRTABLE CONTENT API
             # ==================================================================
+            print(f"   🔍 DEBUG: Archivos a subir: {archivos_para_subir}")
+
             # https://content.airtable.com/v0/{baseId}/{tableIdOrName}/{recordId}/{fieldIdOrName}/uploadAttachment
             total_subidos = 0
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 for columna, uploads in archivos_para_subir.items():
                     for up_file in uploads:
                         try:
-                            # Re-leer contenido (por si acaso se leyó antes, aunque aquí no debería)
-                            await up_file.seek(0)
-                            content = await up_file.read()
+                            # Verificar si es un UploadFile o ya fue leído
+                            contenido = None
+                            nombre_archivo = ""
+                            tipo_contenido = "image/jpeg"
+
+                            if hasattr(up_file, "seek"):
+                                # Es un UploadFile, intentar leer
+                                try:
+                                    await up_file.seek(0)
+                                    contenido = await up_file.read()
+                                    nombre_archivo = up_file.filename
+                                    tipo_contenido = (
+                                        getattr(up_file, "content_type", "image/jpeg")
+                                        or "image/jpeg"
+                                    )
+                                except Exception as e:
+                                    print(
+                                        f"   ⚠️ Error leyendo archivo {getattr(up_file, 'filename', 'unknown')}: {e}"
+                                    )
+                                    continue
+                            else:
+                                # Ya fue leído, no podemos hacer nada
+                                print(
+                                    f"   ⚠️ Archivo ya fue consumido: {str(up_file)[:50]}"
+                                )
+                                continue
+
+                            if not contenido or not nombre_archivo:
+                                print(f"   ⚠️ No se pudo obtener contenido del archivo")
+                                continue
 
                             print(
-                                f"🚀 Subiendo a Content API: {up_file.filename} -> {columna}"
+                                f"🚀 Subiendo a Content API: {nombre_archivo} -> {columna} ({len(contenido)} bytes)"
                             )
 
                             # Encode table name for URL
@@ -1204,9 +1248,9 @@ async def create_siniestro(request: Request):
                             # Content API requires Multipart
                             files = {
                                 "file": (
-                                    up_file.filename,
-                                    content,
-                                    up_file.content_type or "image/jpeg",
+                                    nombre_archivo,
+                                    contenido,
+                                    tipo_contenido,
                                 )
                             }
                             headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -1215,8 +1259,12 @@ async def create_siniestro(request: Request):
 
                             if resp.status_code in (200, 201):
                                 total_subidos += 1
-                                print(f"   ✅ Subido OK: {up_file.filename}")
+                                print(f"   ✅ Subido OK: {nombre_archivo}")
                             else:
+                                archivos_fallidos.append(nombre_archivo)
+                                print(
+                                    f"   ❌ Error Content API ({resp.status_code}): {resp.text[:200]}"
+                                )
                                 archivos_fallidos.append(up_file.filename)
                                 print(
                                     f"   ❌ Error Content API ({resp.status_code}): {resp.text}"
