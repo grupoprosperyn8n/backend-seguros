@@ -1297,10 +1297,12 @@ async def create_siniestro(request: Request):
                                     url_archivo = imgbb_result["data"]["url"]
                                     print(f"   ✅ Subido a ImgBB: {url_archivo}")
 
-                                    # Actualizar campo en Airtable con la URL
+                                    # Actualizar campo en Airtable con la URL como objeto attachment
                                     try:
+                                        # Airtable espera un objeto con "url" no solo la cadena
+                                        attachment_obj = {"url": url_archivo}
                                         t_destino.update(
-                                            record_id, {columna: [url_archivo]}
+                                            record_id, {columna: [attachment_obj]}
                                         )
                                         total_subidos += 1
                                         print(
