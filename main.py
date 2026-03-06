@@ -1331,25 +1331,50 @@ async def create_siniestro(request: Request):
 
                                 # Volver al método original con el nombre de la columna
                                 import urllib.parse
+                                import base64
 
                                 columna_encoded = urllib.parse.quote(columna)
                                 url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment"
 
+                                # Probar con content en base64
+                                content_b64 = base64.b64encode(contenido).decode(
+                                    "utf-8"
+                                )
                                 files = {
                                     "file": (
                                         nombre_archivo,
-                                        contenido,
+                                        content_b64,
                                         tipo_contenido,
                                     )
                                 }
 
+                                # Tambien probar con el content directo
+                                headers_upload = {
+                                    "Authorization": f"Bearer {API_KEY}",
+                                    "Content-Type": tipo_contenido,
+                                }
+
+                                # Intento 1: como multipart
                                 resp = await client.post(
                                     url, headers=headers, files=files
                                 )
                                 print(
-                                    f"   🔍 Respuesta 2: {resp.status_code} - {resp.text[:200]}"
+                                    f"   🔍 Respuesta multipart: {resp.status_code} - {resp.text[:200]}"
                                 )
 
+                                # Si falla, intentar como binary directo
+                                if resp.status_code != 200 and resp.status_code != 201:
+                                    url_binary = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment?contentType={tipo_contenido}&filename={urllib.parse.quote(nombre_archivo)}"
+                                    resp = await client.post(
+                                        url_binary,
+                                        headers=headers_upload,
+                                        content=contenido,
+                                    )
+                                    print(
+                                        f"   🔍 Respuesta binary: {resp.status_code} - {resp.text[:200]}"
+                                    )
+
+                                # Verificar si alguno de los intentos funcionó
                                 if resp.status_code in (200, 201):
                                     total_subidos += 1
                                     print(f"   ✅ Subido OK: {nombre_archivo}")
