@@ -1264,125 +1264,58 @@ async def create_siniestro(request: Request):
                             url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment"
                             print(f"   🔍 DEBUG URL: {url}")
 
-                            # Headers para requests a Airtable
-                            headers = {"Authorization": f"Bearer {API_KEY}"}
+                            # Estrategia alternativa: subir a ImgBB (servicio gratuito)
+                            # y pasar la URL a Airtable
+                            import base64
 
-                            # Nueva estrategia: intentar con la API regular de Airtable
-                            # Primero verificar si el campo existe y obtener su ID
+                            print(f"☁️ Subiendo {nombre_archivo} a ImgBB...")
+
+                            # Codificar en base64
+                            imgb64 = base64.b64encode(contenido).decode("utf-8")
+
+                            # Subir a ImgBB
+                            imgbb_url = "https://api.imgbb.com/1/upload"
+                            imgbb_key = "d36eb6591370ae7f9089d85875571358"  # API key pública gratuita
+
                             try:
-                                # Obtener metadata de la tabla para encontrar el ID del campo
-                                schema_url = (
-                                    f"https://api.airtable.com/v0/{BASE_ID}/{tabla_id}"
+                                imgbb_data = {
+                                    "key": imgbb_key,
+                                    "image": imgb64,
+                                    "name": nombre_archivo,
+                                }
+
+                                imgbb_resp = await client.post(
+                                    imgbb_url, data=imgbb_data
                                 )
-                                schema_resp = await client.get(
-                                    schema_url, headers=headers
-                                )
+                                imgbb_result = imgbb_resp.json()
 
-                                campo_id = None
-                                if schema_resp.status_code == 200:
-                                    schema_data = schema_resp.json()
-                                    for field in schema_data.get("fields", []):
-                                        if field.get("name") == columna:
-                                            campo_id = field.get("id")
-                                            print(
-                                                f"   🔍 Encontrado campo ID: {campo_id}"
-                                            )
-                                            break
+                                print(f"   🔍 ImgBB response: {imgbb_resp.status_code}")
 
-                                if campo_id:
-                                    # Usar el ID del campo en la URL
-                                    url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{campo_id}/uploadAttachment"
-                                    print(f"   🔍 Nueva URL con campo ID: {url}")
+                                if imgbb_resp.status_code == 200 and imgbb_result.get(
+                                    "success"
+                                ):
+                                    url_archivo = imgbb_result["data"]["url"]
+                                    print(f"   ✅ Subido a ImgBB: {url_archivo}")
 
-                                    files = {
-                                        "file": (
-                                            nombre_archivo,
-                                            contenido,
-                                            tipo_contenido,
+                                    # Actualizar campo en Airtable con la URL
+                                    try:
+                                        t_destino.update(
+                                            record_id, {columna: [url_archivo]}
                                         )
-                                    }
-
-                                    resp = await client.post(
-                                        url, headers=headers, files=files
-                                    )
-                                    print(
-                                        f"   🔍 Respuesta: {resp.status_code} - {resp.text[:200]}"
-                                    )
-
-                                    if resp.status_code in (200, 201):
                                         total_subidos += 1
-                                        print(f"   ✅ Subido OK: {nombre_archivo}")
-                                    else:
-                                        archivos_fallidos.append(nombre_archivo)
                                         print(
-                                            f"   ❌ Error Content API ({resp.status_code}): {resp.text[:200]}"
+                                            f"   ✅ Actualizado campo {columna} en Airtable"
+                                        )
+                                    except Exception as ae:
+                                        print(
+                                            f"   ❌ Error actualizando Airtable: {ae}"
                                         )
                                 else:
-                                    # Campo no encontrado, intentar igual con nombre
-                                    print(
-                                        f"   ⚠️ Campo no encontrado en schema, intentando con nombre..."
-                                    )
-                                    raise Exception("Campo no encontrado")
-
-                            except Exception as e:
-                                print(
-                                    f"   🔄 Intentando con nombre de campo directo..."
-                                )
-
-                                # Volver al método original con el nombre de la columna
-                                import urllib.parse
-                                import base64
-
-                                columna_encoded = urllib.parse.quote(columna)
-                                url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment"
-
-                                # Probar con content en base64
-                                content_b64 = base64.b64encode(contenido).decode(
-                                    "utf-8"
-                                )
-                                files = {
-                                    "file": (
-                                        nombre_archivo,
-                                        content_b64,
-                                        tipo_contenido,
-                                    )
-                                }
-
-                                # Tambien probar con el content directo
-                                headers_upload = {
-                                    "Authorization": f"Bearer {API_KEY}",
-                                    "Content-Type": tipo_contenido,
-                                }
-
-                                # Intento 1: como multipart
-                                resp = await client.post(
-                                    url, headers=headers, files=files
-                                )
-                                print(
-                                    f"   🔍 Respuesta multipart: {resp.status_code} - {resp.text[:200]}"
-                                )
-
-                                # Si falla, intentar como binary directo
-                                if resp.status_code != 200 and resp.status_code != 201:
-                                    url_binary = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment?contentType={tipo_contenido}&filename={urllib.parse.quote(nombre_archivo)}"
-                                    resp = await client.post(
-                                        url_binary,
-                                        headers=headers_upload,
-                                        content=contenido,
-                                    )
-                                    print(
-                                        f"   🔍 Respuesta binary: {resp.status_code} - {resp.text[:200]}"
-                                    )
-
-                                # Verificar si alguno de los intentos funcionó
-                                if resp.status_code in (200, 201):
-                                    total_subidos += 1
-                                    print(f"   ✅ Subido OK: {nombre_archivo}")
-                                else:
+                                    print(f"   ❌ Error ImgBB: {imgbb_result}")
                                     archivos_fallidos.append(nombre_archivo)
-                                    print(
-                                        f"   ❌ Error Content API ({resp.status_code}): {resp.text[:200]}"
-                                    )
+                            except Exception as e:
+                                print(f"   ❌ Excepción subiendo a ImgBB: {e}")
+                                archivos_fallidos.append(nombre_archivo)
 
                         except Exception as upload_err:
                             archivos_fallidos.append(up_file.filename)
