@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Body, File, UploadFile, Form, Request
 import json
+import asyncio
 
 try:
     from .drive_service import upload_file_to_drive
@@ -1263,30 +1264,100 @@ async def create_siniestro(request: Request):
                             url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment"
                             print(f"   🔍 DEBUG URL: {url}")
 
-                            # Content API requires Multipart
-                            files = {
-                                "file": (
-                                    nombre_archivo,
-                                    contenido,
-                                    tipo_contenido,
-                                )
-                            }
+                            # Headers para requests a Airtable
                             headers = {"Authorization": f"Bearer {API_KEY}"}
 
-                            resp = await client.post(url, headers=headers, files=files)
+                            # Nueva estrategia: intentar con la API regular de Airtable
+                            # Primero verificar si el campo existe y obtener su ID
+                            try:
+                                # Obtener metadata de la tabla para encontrar el ID del campo
+                                schema_url = (
+                                    f"https://api.airtable.com/v0/{BASE_ID}/{tabla_id}"
+                                )
+                                schema_resp = await client.get(
+                                    schema_url, headers=headers
+                                )
 
-                            if resp.status_code in (200, 201):
-                                total_subidos += 1
-                                print(f"   ✅ Subido OK: {nombre_archivo}")
-                            else:
-                                archivos_fallidos.append(nombre_archivo)
+                                campo_id = None
+                                if schema_resp.status_code == 200:
+                                    schema_data = schema_resp.json()
+                                    for field in schema_data.get("fields", []):
+                                        if field.get("name") == columna:
+                                            campo_id = field.get("id")
+                                            print(
+                                                f"   🔍 Encontrado campo ID: {campo_id}"
+                                            )
+                                            break
+
+                                if campo_id:
+                                    # Usar el ID del campo en la URL
+                                    url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{campo_id}/uploadAttachment"
+                                    print(f"   🔍 Nueva URL con campo ID: {url}")
+
+                                    files = {
+                                        "file": (
+                                            nombre_archivo,
+                                            contenido,
+                                            tipo_contenido,
+                                        )
+                                    }
+
+                                    resp = await client.post(
+                                        url, headers=headers, files=files
+                                    )
+                                    print(
+                                        f"   🔍 Respuesta: {resp.status_code} - {resp.text[:200]}"
+                                    )
+
+                                    if resp.status_code in (200, 201):
+                                        total_subidos += 1
+                                        print(f"   ✅ Subido OK: {nombre_archivo}")
+                                    else:
+                                        archivos_fallidos.append(nombre_archivo)
+                                        print(
+                                            f"   ❌ Error Content API ({resp.status_code}): {resp.text[:200]}"
+                                        )
+                                else:
+                                    # Campo no encontrado, intentar igual con nombre
+                                    print(
+                                        f"   ⚠️ Campo no encontrado en schema, intentando con nombre..."
+                                    )
+                                    raise Exception("Campo no encontrado")
+
+                            except Exception as e:
                                 print(
-                                    f"   ❌ Error Content API ({resp.status_code}): {resp.text[:200]}"
+                                    f"   🔄 Intentando con nombre de campo directo..."
                                 )
-                                archivos_fallidos.append(up_file.filename)
+
+                                # Volver al método original con el nombre de la columna
+                                import urllib.parse
+
+                                columna_encoded = urllib.parse.quote(columna)
+                                url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_id}/{record_id}/{columna_encoded}/uploadAttachment"
+
+                                files = {
+                                    "file": (
+                                        nombre_archivo,
+                                        contenido,
+                                        tipo_contenido,
+                                    )
+                                }
+
+                                resp = await client.post(
+                                    url, headers=headers, files=files
+                                )
                                 print(
-                                    f"   ❌ Error Content API ({resp.status_code}): {resp.text}"
+                                    f"   🔍 Respuesta 2: {resp.status_code} - {resp.text[:200]}"
                                 )
+
+                                if resp.status_code in (200, 201):
+                                    total_subidos += 1
+                                    print(f"   ✅ Subido OK: {nombre_archivo}")
+                                else:
+                                    archivos_fallidos.append(nombre_archivo)
+                                    print(
+                                        f"   ❌ Error Content API ({resp.status_code}): {resp.text[:200]}"
+                                    )
 
                         except Exception as upload_err:
                             archivos_fallidos.append(up_file.filename)
