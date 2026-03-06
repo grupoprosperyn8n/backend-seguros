@@ -28,6 +28,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:8080",
+        "https://seguros_linktree.surge.sh",
         "https://seguros-app-linktree.surge.sh",
         "https://login-agentico-1770227340.surge.sh",
         "https://registro-agentico-1770227370.surge.sh",
