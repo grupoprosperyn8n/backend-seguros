@@ -1422,8 +1422,15 @@ async def get_faqs():
         faqs = []
         for rec in records:
             fields = rec.get("fields", {})
-            # Filtrar solo los visibles
-            visible = str(fields.get("VISIBLE", "")).lower()
+            # Filtrar solo los visibles - manejar diferentes tipos de datos
+            visible_raw = fields.get("VISIBLE", "")
+            if isinstance(visible_raw, bool):
+                visible = "true" if visible_raw else "false"
+            elif isinstance(visible_raw, dict):
+                visible = "true"
+            else:
+                visible = str(visible_raw).lower()
+
             if visible == "true" or visible == "yes" or visible == "1":
                 faqs.append(
                     {
@@ -1465,11 +1472,18 @@ async def get_quienes_somos():
         # Traer todos los registros y filtrar en Python
         records = table_qs.all(max_records=10)
 
-        # Filtrar solo los visibles
+        # Filtrar solo los visibles - manejar diferentes tipos de datos
         visible_record = None
         for rec in records:
             fields = rec.get("fields", {})
-            visible = str(fields.get("VISIBLE", "")).lower()
+            visible_raw = fields.get("VISIBLE", "")
+            if isinstance(visible_raw, bool):
+                visible = "true" if visible_raw else "false"
+            elif isinstance(visible_raw, dict):
+                visible = "true"
+            else:
+                visible = str(visible_raw).lower()
+
             if visible == "true" or visible == "yes" or visible == "1":
                 visible_record = fields
                 break
