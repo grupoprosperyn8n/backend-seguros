@@ -1416,25 +1416,25 @@ async def get_faqs():
         raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
     try:
-        # Buscar solo las visibles (campo texto con "true"), ordenadas por ORDEN
-        records = table_faqs.all(
-            filterByFormula="({VISIBLE} = 'true')",
-            sort=[{"field": "ORDEN", "direction": "asc"}],
-        )
+        # Traer todos los registros y filtrar en Python (más robusto)
+        records = table_faqs.all(sort=[{"field": "ORDEN", "direction": "asc"}])
 
         faqs = []
         for rec in records:
             fields = rec.get("fields", {})
-            faqs.append(
-                {
-                    "id": rec["id"],
-                    "pregunta": fields.get("PREGUNTA", ""),
-                    "respuesta": fields.get("RESPUESTA", ""),
-                    "categoria": fields.get("CATEGORIA", ""),
-                    "orden": fields.get("ORDEN", 999),
-                    "icono": fields.get("ICONO", "fa-question-circle"),
-                }
-            )
+            # Filtrar solo los visibles
+            visible = str(fields.get("VISIBLE", "")).lower()
+            if visible == "true" or visible == "yes" or visible == "1":
+                faqs.append(
+                    {
+                        "id": rec["id"],
+                        "pregunta": fields.get("PREGUNTA", ""),
+                        "respuesta": fields.get("RESPUESTA", ""),
+                        "categoria": fields.get("CATEGORIA", ""),
+                        "orden": fields.get("ORDEN", 999),
+                        "icono": fields.get("ICONO", "fa-question-circle"),
+                    }
+                )
 
         return {"status": "success", "faqs": faqs, "total": len(faqs)}
 
@@ -1462,17 +1462,26 @@ async def get_quienes_somos():
         )
 
     try:
-        # Buscar solo las visibles
-        records = table_qs.all(filterByFormula="({VISIBLE} = 'true')", max_records=1)
+        # Traer todos los registros y filtrar en Python
+        records = table_qs.all(max_records=10)
 
-        if not records:
+        # Filtrar solo los visibles
+        visible_record = None
+        for rec in records:
+            fields = rec.get("fields", {})
+            visible = str(fields.get("VISIBLE", "")).lower()
+            if visible == "true" or visible == "yes" or visible == "1":
+                visible_record = fields
+                break
+
+        if not visible_record:
             return {
                 "status": "success",
                 "visible": False,
                 "message": "Sección no visible",
             }
 
-        fields = records[0].get("fields", {})
+        fields = visible_record
 
         # Procesar foto de perfil
         foto_perfil = fields.get("FOTO PERFIL", [])
