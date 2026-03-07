@@ -1202,8 +1202,29 @@ async def create_siniestro(request: Request):
             record = t_destino.create(airtable_payload, typecast=True)
             record_id = record.get("id", "N/A")
 
-            # Obtener el ID de gestión generado por Airtable (fórmula)
-            id_gestion = record.get("fields", {}).get("ID_GESTION_UNICO", record_id)
+            # Obtener el ID de gestión - Necesitamos reconsultar el registro porque
+            # los campos fórmula no se calculan inmediatamente
+            try:
+                updated_record = t_destino.get(record_id)
+                id_gestion = updated_record.get("fields", {}).get(
+                    "ID_GESTION_UNICO", None
+                )
+                if not id_gestion:
+                    # Si no tiene ID_GESTION_UNICO, usar el record_id
+                    id_gestion = record_id
+                # También buscar otros campos de ID posibles
+                if not id_gestion or id_gestion == record_id:
+                    id_gestion = updated_record.get("fields", {}).get(
+                        "Código", record_id
+                    )
+                if not id_gestion or id_gestion == record_id:
+                    id_gestion = updated_record.get("fields", {}).get(
+                        "ID_UNICO_GESTION", record_id
+                    )
+            except Exception as e:
+                print(f"   ⚠️ Error obteniendo ID de gestión: {e}")
+                id_gestion = record_id
+
             print(f"✅ Siniestro creado exitosamente: {record_id} ({id_gestion})")
 
             # ==================================================================
