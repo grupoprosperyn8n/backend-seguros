@@ -1416,9 +1416,10 @@ async def get_faqs():
         raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
     try:
-        # Buscar solo las visibles, ordenadas por ORDEN
+        # Buscar solo las visibles (campo texto con "true"), ordenadas por ORDEN
         records = table_faqs.all(
-            filterByFormula="{VISIBLE}", sort=[{"field": "ORDEN", "direction": "asc"}]
+            filterByFormula="({VISIBLE} = 'true')",
+            sort=[{"field": "ORDEN", "direction": "asc"}],
         )
 
         faqs = []
@@ -1462,7 +1463,7 @@ async def get_quienes_somos():
 
     try:
         # Buscar solo las visibles
-        records = table_qs.all(filterByFormula="{VISIBLE}", max_records=1)
+        records = table_qs.all(filterByFormula="({VISIBLE} = 'true')", max_records=1)
 
         if not records:
             return {
