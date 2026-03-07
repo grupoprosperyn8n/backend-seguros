@@ -1397,3 +1397,129 @@ async def create_siniestro(request: Request):
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINTS FAQ - PREGUNTAS FRECUENTES
+# ==============================================================================
+
+
+@app.get("/api/faqs")
+async def get_faqs():
+    """
+    Retorna las preguntas frecuentes configuradas en Airtable.
+    Solo retorna las que tienen VISIBLE = true, ordenadas por ORDEN.
+    """
+    table_faqs = get_table("FAQ")
+
+    if not table_faqs:
+        raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
+
+    try:
+        # Buscar solo las visibles, ordenadas por ORDEN
+        records = table_faqs.all(
+            filterByFormula="{VISIBLE}", sort=[{"field": "ORDEN", "direction": "asc"}]
+        )
+
+        faqs = []
+        for rec in records:
+            fields = rec.get("fields", {})
+            faqs.append(
+                {
+                    "id": rec["id"],
+                    "pregunta": fields.get("PREGUNTA", ""),
+                    "respuesta": fields.get("RESPUESTA", ""),
+                    "categoria": fields.get("CATEGORIA", ""),
+                    "orden": fields.get("ORDEN", 999),
+                    "icono": fields.get("ICONO", "fa-question-circle"),
+                }
+            )
+
+        return {"status": "success", "faqs": faqs, "total": len(faqs)}
+
+    except Exception as e:
+        print(f"❌ Error obteniendo FAQs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINT QUIENES SOMOS
+# ==============================================================================
+
+
+@app.get("/api/quienes-somos")
+async def get_quienes_somos():
+    """
+    Retorna la información de Quiénes Somos configurada en Airtable.
+    Solo retorna el primer registro que tenga VISIBLE = true.
+    """
+    table_qs = get_table("QUIENES_SOMOS")
+
+    if not table_qs:
+        raise HTTPException(
+            status_code=500, detail="Tabla QUIENES_SOMOS no configurada"
+        )
+
+    try:
+        # Buscar solo las visibles
+        records = table_qs.all(filterByFormula="{VISIBLE}", max_records=1)
+
+        if not records:
+            return {
+                "status": "success",
+                "visible": False,
+                "message": "Sección no visible",
+            }
+
+        fields = records[0].get("fields", {})
+
+        # Procesar foto de perfil
+        foto_perfil = fields.get("FOTO PERFIL", [])
+        foto_perfil_url = ""
+        if foto_perfil and len(foto_perfil) > 0:
+            foto_perfil_url = foto_perfil[0].get("url", "")
+
+        # Procesar imagen de fondo
+        imagen_fondo = fields.get("IMAGEN FONDO", [])
+        imagen_fondo_url = ""
+        if imagen_fondo and len(imagen_fondo) > 0:
+            imagen_fondo_url = imagen_fondo[0].get("url", "")
+
+        # Procesar valores (separados por coma)
+        valores_raw = fields.get("VALORES", "")
+        valores_list = (
+            [v.strip() for v in valores_raw.split(",")] if valores_raw else []
+        )
+
+        return {
+            "status": "success",
+            "visible": True,
+            "titulo": fields.get("TITULO", "Rafael Allende & Asociados"),
+            "subtitulo": fields.get("SUBTITULO", ""),
+            "texto_principal": fields.get("TEXTO PRINCIPAL", ""),
+            "responsable": {
+                "nombre": fields.get("NOMBRE RESPONSABLE", ""),
+                "cargo": fields.get("CARGO", ""),
+                "foto": foto_perfil_url,
+            },
+            "estadisticas": {
+                "anos_experiencia": fields.get("ANIOS EXPERIENCIA", 0),
+                "cantidad_clientes": fields.get("CANTIDAD CLIENTES", 0),
+                "cantidad_sucursales": fields.get("CANTIDAD SUCURSALES", 0),
+                "cantidad_polizas": fields.get("CANTIDAD POLIZAS", 0),
+                "mostrar": fields.get("MOSTRAR ESTADISTICAS", True),
+            },
+            "mision": fields.get("MISION", ""),
+            "vision": fields.get("VISION", ""),
+            "valores": valores_list,
+            "imagen_fondo": imagen_fondo_url,
+            "colores": {
+                "principal": fields.get("COLOR PRINCIPAL", "#1e40af"),
+                "secundario": fields.get("COLOR SECUNDARIO", "#f59e0b"),
+            },
+            "video_presentacion": fields.get("VIDEO PRESENTACION", ""),
+        }
+
+    except Exception as e:
+        print(f"❌ Error obteniendo QUIENES_SOMOS: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
