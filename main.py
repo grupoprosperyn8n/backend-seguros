@@ -1320,14 +1320,27 @@ async def create_siniestro(request: Request):
 
                                     # Actualizar campo en Airtable con la URL como objeto attachment
                                     try:
-                                        # Airtable espera un objeto con "url" no solo la cadena
+                                        # Primero obtener los attachments existentes del campo
+                                        existing_record = t_destino.get(record_id)
+                                        existing_attachments = existing_record.get(
+                                            "fields", {}
+                                        ).get(columna, [])
+
+                                        # Crear el nuevo objeto de attachment
                                         attachment_obj = {"url": url_archivo}
+
+                                        # Combinar existentes + nuevo
+                                        all_attachments = existing_attachments + [
+                                            attachment_obj
+                                        ]
+
+                                        # Actualizar con todos los attachments
                                         t_destino.update(
-                                            record_id, {columna: [attachment_obj]}
+                                            record_id, {columna: all_attachments}
                                         )
                                         total_subidos += 1
                                         print(
-                                            f"   ✅ Actualizado campo {columna} en Airtable"
+                                            f"   ✅ Actualizado campo {columna} en Airtable (ahora tiene {len(all_attachments)} archivos)"
                                         )
                                     except Exception as ae:
                                         print(
