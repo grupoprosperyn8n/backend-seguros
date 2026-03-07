@@ -1416,32 +1416,31 @@ async def get_faqs():
         raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
     try:
-        # Traer todos los registros y filtrar en Python (más robusto)
-        records = table_faqs.all(sort=[{"field": "ORDEN", "direction": "asc"}])
+        # Traer todos los registros sin sorting para evitar errores
+        records = table_faqs.all()
 
         faqs = []
         for rec in records:
             fields = rec.get("fields", {})
-            # Filtrar solo los visibles - manejar diferentes tipos de datos
-            visible_raw = fields.get("VISIBLE", "")
-            if isinstance(visible_raw, bool):
-                visible = "true" if visible_raw else "false"
-            elif isinstance(visible_raw, dict):
-                visible = "true"
-            else:
-                visible = str(visible_raw).lower()
 
-            if visible == "true" or visible == "yes" or visible == "1":
-                faqs.append(
-                    {
-                        "id": rec["id"],
-                        "pregunta": fields.get("PREGUNTA", ""),
-                        "respuesta": fields.get("RESPUESTA", ""),
-                        "categoria": fields.get("CATEGORIA", ""),
-                        "orden": fields.get("ORDEN", 999),
-                        "icono": fields.get("ICONO", "fa-question-circle"),
-                    }
-                )
+            # Filtrar solo los visibles
+            visible = fields.get("VISIBLE", False)
+            if not visible:
+                continue
+
+            faqs.append(
+                {
+                    "id": rec["id"],
+                    "pregunta": fields.get("PREGUNTA", ""),
+                    "respuesta": fields.get("RESPUESTA", ""),
+                    "categoria": fields.get("CATEGORIA", ""),
+                    "orden": fields.get("ORDEN", 999),
+                    "icono": fields.get("ICONO", "fa-question-circle"),
+                }
+            )
+
+        # Ordenar por ORDEN
+        faqs.sort(key=lambda x: x.get("orden", 999))
 
         return {"status": "success", "faqs": faqs, "total": len(faqs)}
 
@@ -1472,19 +1471,12 @@ async def get_quienes_somos():
         # Traer todos los registros y filtrar en Python
         records = table_qs.all(max_records=10)
 
-        # Filtrar solo los visibles - manejar diferentes tipos de datos
+        # Filtrar solo los visibles
         visible_record = None
         for rec in records:
             fields = rec.get("fields", {})
-            visible_raw = fields.get("VISIBLE", "")
-            if isinstance(visible_raw, bool):
-                visible = "true" if visible_raw else "false"
-            elif isinstance(visible_raw, dict):
-                visible = "true"
-            else:
-                visible = str(visible_raw).lower()
-
-            if visible == "true" or visible == "yes" or visible == "1":
+            visible = fields.get("VISIBLE", False)
+            if visible:
                 visible_record = fields
                 break
 
