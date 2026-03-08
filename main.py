@@ -1546,3 +1546,54 @@ async def get_quienes_somos():
     except Exception as e:
         print(f"❌ Error obteniendo QUIENES_SOMOS: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINT SUCURSALES
+# ==============================================================================
+
+
+@app.get("/api/sucursales")
+async def get_sucursales():
+    """
+    Retorna la lista de sucursales configuradas en Airtable.
+    Solo retorna las que tienen VISIBLE = true, ordenadas por ORDEN.
+    """
+    table_suc = get_table("SUCURSALES")
+
+    if not table_suc:
+        raise HTTPException(status_code=500, detail="Tabla SUCURSALES no configurada")
+
+    try:
+        records = table_suc.all(max_records=50)
+
+        sucursales = []
+        for rec in records:
+            fields = rec.get("fields", {})
+            visible = fields.get("VISIBLE", False)
+            if visible:
+                sucursales.append(
+                    {
+                        "nombre": fields.get("NOMBRE", ""),
+                        "direccion": fields.get("DIRECCION", ""),
+                        "localidad": fields.get("LOCALIDAD", ""),
+                        "horario": fields.get("HORARIO", ""),
+                        "googleMap": fields.get("GOOGLE MAP", ""),
+                        "orden": fields.get("ORDEN", 999),
+                    }
+                )
+
+        sucursales.sort(key=lambda x: x.get("orden", 999))
+
+        for s in sucursales:
+            s.pop("orden", None)
+
+        return {
+            "status": "success",
+            "cantidad": len(sucursales),
+            "sucursales": sucursales,
+        }
+
+    except Exception as e:
+        print(f"❌ Error obteniendo SUCURSALES: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
