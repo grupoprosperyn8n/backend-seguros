@@ -1,0 +1,187 @@
+{
+  "name": "LOGIN SISTEMA-AGENTICO",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "login-v2",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "name": "Webhook Login",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 200],
+      "id": "webhook-login-js-v3"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/Login",
+        "method": "GET",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "NOT({EMAIL} = '')"
+            }
+          ]
+        }
+      },
+      "name": "Traer Todos Usuarios",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        200,
+        200
+      ],
+      "id": "http-get-users-raw"
+    },
+    {
+      "parameters": {
+        "jsCode": "// LÓGICA DE FILTRADO 'NATIVA' EN N8N\n// 1. Recibimos todos los usuarios (Formato HTTP Raw de Airtable)\n// La API devuelve: { records: [ { fields: {...} }, ... ] }\nconst response = items[0].json;\nconst allUsers = (response.records || []).map(r => r.fields);\n\n// 2. Datos del Login (Input)\nconst body = $(\"Webhook Login\").first().json.body;\nconst emailLogin = (body.email || \"\").toString().trim().toLowerCase();\nconst passLogin = body.password;\n\n// 3. Buscamos 'manualmente' en el array de usuarios\nconst found = allUsers.find(user => {\n  const emailDB = (user.EMAIL || \"\").toString().trim().toLowerCase();\n  return emailDB === emailLogin;\n});\n\n// 4. Validamos Password y Estado\nif (found) {\n  if (found.CONTRASEÑA == passLogin && found.ESTADO == 'Activo') {\n    return [\n      {\n        json: {\n          match: true,\n          user: found\n        }\n      }\n    ];\n  }\n}\n\n// 5. Si no coincide nada\nreturn [\n  {\n    json: {\n      match: false\n    }\n  }\n];"
+      },
+      "name": "Validar en N8N",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 200],
+      "id": "code-validate-local-v3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.match }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Es Valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [600, 200],
+      "id": "if-is-valid-v3"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"redirect\": \"{{ $json.user.URL_PORTAL }}\",\n  \"user\": {\n    \"email\": \"{{ $json.user.EMAIL }}\",\n    \"role\": \"{{ $json.user['ROL OPERATIVO'] }}\"\n  }\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Responder Exito",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [800, 100],
+      "id": "respond-success-v3"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"error\": \"Credenciales inválidas o cuenta no activa.\"\n}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "name": "Responder Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [800, 300],
+      "id": "respond-error-v3"
+    }
+  ],
+  "connections": {
+    "Webhook Login": {
+      "main": [
+        [
+          {
+            "node": "Traer Todos Usuarios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traer Todos Usuarios": {
+      "main": [
+        [
+          {
+            "node": "Validar en N8N",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar en N8N": {
+      "main": [
+        [
+          {
+            "node": "Es Valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es Valido?": {
+      "main": [
+        [
+          {
+            "node": "Responder Exito",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinnedData": {
+    "Webhook Login": [
+      {
+        "json": {
+          "headers": {
+            "host": "localhost:5678",
+            "user-agent": "PostmanRuntime/7.29.0",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br",
+            "connection": "keep-alive",
+            "content-type": "application/json"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "email": "diego.lopez@testAirtable.com",
+            "password": "password123"
+          }
+        }
+      }
+    ]
+  }
+}

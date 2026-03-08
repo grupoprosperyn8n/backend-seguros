@@ -1,0 +1,127 @@
+{
+  "name": "REGISTRO SISTEMA-AGENTICO",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "register",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "webhook-register-clean",
+      "name": "Webhook Registro"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/Login",
+        "method": "POST",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"records\": [{ \"fields\": { \"EMAIL\": \"{{ $json.body.email }}\", \"CONTRASEÑA\": \"{{ $json.body.password }}\", \"ROL\": \"Visitante\", \"ESTADO\": \"Pendiente\", \"NOMBRE\": \"{{ $json.body.nombre }}\", \"APELLIDO\": \"{{ $json.body.apellido }}\" }}]}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        250,
+        0
+      ],
+      "id": "airtable-create-raw",
+      "name": "Crear Usuario Airtable"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"status\": \"ok\", \"message\": \"Usuario creado correctamente\" }",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        500,
+        0
+      ],
+      "id": "respond-ok-clean",
+      "name": "Responder OK"
+    }
+  ],
+  "connections": {
+    "Webhook Registro": {
+      "main": [
+        [
+          {
+            "node": "Crear Usuario Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Usuario Airtable": {
+      "main": [
+        [
+          {
+            "node": "Responder OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinnedData": {
+    "Webhook Registro": [
+      {
+        "json": {
+          "headers": {
+            "host": "localhost:5678",
+            "user-agent": "PostmanRuntime/7.29.0",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br",
+            "connection": "keep-alive",
+            "content-type": "application/json"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "email": "test.new.user@example.com",
+            "password": "password123",
+            "nombre": "Usuario",
+            "apellido": "Test"
+          }
+        }
+      }
+    ]
+  }
+}

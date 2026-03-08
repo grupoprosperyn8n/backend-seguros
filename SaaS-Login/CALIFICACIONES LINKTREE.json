@@ -1,0 +1,218 @@
+{
+  "name": "CALIFICACIONES LINKTREE",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "calificacion",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "name": "[WH] Recibir Calificación",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 200],
+      "id": "wh-calificacion"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardar datos del body para uso posterior\nconst body = $input.first().json.body;\n\nreturn [{ json: { \n  ...body,\n  buscarCliente: body.es_cliente === 'Sí' && body.dni ? true : false\n}}];"
+      },
+      "name": "[JS] Extraer Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 200],
+      "id": "js-extraer-datos"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.buscarCliente }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "¿Es Cliente con DNI?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [400, 200],
+      "id": "if-es-cliente"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.airtable.com/v0/appuhslj3GFf60Tea/CLIENTES?filterByFormula={DNI}={{ $json.dni }}",
+        "method": "GET",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "[DB_A] Buscar Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [600, 100],
+      "id": "db-buscar-cliente"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar datos para Airtable CON cliente encontrado\nconst input = $input.first().json;\nconst originalData = $('¿Es Cliente con DNI?').first().json;\n\nconst AGENTE_ONLINE_ID = 'recrUCS6NhFjVmzqm';\nconst clienteEncontrado = input.records && input.records.length > 0;\n\nconst record = {\n  records: [{\n    fields: {\n      'ESTRELLAS': originalData.estrellas || 0,\n      'CUAL FUE TU EXPERIENCIA CON NOSOTROS': originalData.estrellas || 0,\n      'NOMBRE': originalData.nombre || 'Anónimo',\n      'ES_CLIENTE': clienteEncontrado ? 'Sí' : 'No',\n      'SERVICIO': originalData.servicio || 'Atención General',\n      'COMENTARIO': originalData.comentario || '',\n      'MODO': 'Online',\n      'VISIBLE': true,\n      'AUTORIZA_PUBLICAR': originalData.autoriza_publicar || false,\n      'USAR FOTO': originalData.usar_foto || false,\n      'EMPLEADO': [AGENTE_ONLINE_ID]\n    }\n  }]\n};\n\n// Agregar DNI si existe\nif (originalData.dni) {\n  record.records[0].fields['DNI'] = originalData.dni;\n}\n\n// Vincular cliente SOLO si se encontró\nif (clienteEncontrado) {\n  record.records[0].fields['CLIENTE'] = [input.records[0].id];\n}\n\nreturn [{ json: { ...record, clienteEncontrado } }];"
+      },
+      "name": "[JS] Preparar con Búsqueda",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 100],
+      "id": "js-preparar-con-busqueda"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar datos para Airtable (NO es cliente)\nconst originalData = $input.first().json;\n\nconst AGENTE_ONLINE_ID = 'recrUCS6NhFjVmzqm';\n\nconst record = {\n  records: [{\n    fields: {\n      'ESTRELLAS': originalData.estrellas || 0,\n      'CUAL FUE TU EXPERIENCIA CON NOSOTROS': originalData.estrellas || 0,\n      'NOMBRE': originalData.nombre || 'Anónimo',\n      'ES_CLIENTE': 'No',\n      'SERVICIO': originalData.servicio || 'Atención General',\n      'COMENTARIO': originalData.comentario || '',\n      'MODO': 'Online',\n      'VISIBLE': true,\n      'AUTORIZA_PUBLICAR': originalData.autoriza_publicar || false,\n      'USAR FOTO': originalData.usar_foto || false,\n      'EMPLEADO': [AGENTE_ONLINE_ID]\n    }\n  }]\n};\n\nreturn [{ json: { ...record, clienteEncontrado: false } }];"
+      },
+      "name": "[JS] Preparar sin Cliente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300],
+      "id": "js-preparar-sin-cliente"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/CALIFICACIONES",
+        "method": "POST",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ records: $json.records }) }}",
+        "options": {}
+      },
+      "name": "[DB_A] Guardar Calificación",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 200],
+      "id": "db-guardar-calificacion"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Calificación registrada correctamente\",\n  \"recordId\": \"{{ $json.records[0].id }}\",\n  \"clienteVinculado\": {{ $json.records[0].fields.CLIENTE ? true : false }}\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Responder Éxito",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1200, 200],
+      "id": "respond-success"
+    }
+  ],
+  "connections": {
+    "[WH] Recibir Calificación": {
+      "main": [
+        [
+          {
+            "node": "[JS] Extraer Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[JS] Extraer Datos": {
+      "main": [
+        [
+          {
+            "node": "¿Es Cliente con DNI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es Cliente con DNI?": {
+      "main": [
+        [
+          {
+            "node": "[DB_A] Buscar Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "[JS] Preparar sin Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[DB_A] Buscar Cliente": {
+      "main": [
+        [
+          {
+            "node": "[JS] Preparar con Búsqueda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[JS] Preparar con Búsqueda": {
+      "main": [
+        [
+          {
+            "node": "[DB_A] Guardar Calificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[JS] Preparar sin Cliente": {
+      "main": [
+        [
+          {
+            "node": "[DB_A] Guardar Calificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[DB_A] Guardar Calificación": {
+      "main": [
+        [
+          {
+            "node": "Responder Éxito",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

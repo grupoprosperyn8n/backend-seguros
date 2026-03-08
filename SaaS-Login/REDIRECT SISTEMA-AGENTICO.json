@@ -1,0 +1,180 @@
+{
+  "name": "REDIRECT SISTEMA-AGENTICO",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "redirect",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-redirect",
+      "name": "Webhook Redirect",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "redirect-token-validator"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/Tokens",
+        "method": "GET",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "=AND({TOKEN} = '{{ $json.query.token }}', {USADO} = FALSE())"
+            }
+          ]
+        }
+      },
+      "id": "buscar-token",
+      "name": "Buscar Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validar si el token existe y no expiró\nconst response = $input.first().json;\nconst records = response.records || [];\n\nif (records.length === 0) {\n  return [{ json: { valid: false, error: 'Token inválido o ya usado' } }];\n}\n\nconst tokenData = records[0];\nconst recordId = tokenData.id;\nconst fields = tokenData.fields;\n\n// Verificar expiración (EXPIRA está en formato ISO string)\nconst expiraStr = fields.EXPIRA;\nif (expiraStr) {\n  const expiraDate = new Date(expiraStr);\n  const now = new Date();\n  if (now > expiraDate) {\n    return [{ json: { valid: false, error: 'Sesión expirada', recordId } }];\n  }\n}\n\nreturn [{ json: { \n  valid: true, \n  recordId: recordId,\n  destinationUrl: fields.URL_DESTINO \n} }];"
+      },
+      "id": "validar-token",
+      "name": "Validar Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "valid-check",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-valido",
+      "name": "Si Válido",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.airtable.com/v0/appuhslj3GFf60Tea/Tokens/{{ $json.recordId }}",
+        "method": "PATCH",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"fields\": { \"USADO\": true } }"
+      },
+      "id": "marcar-usado",
+      "name": "Marcar Usado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [880, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "redirect",
+        "redirectURL": "={{ $('Validar Token').item.json.destinationUrl }}",
+        "options": {}
+      },
+      "id": "redirect-ok",
+      "name": "Redirect OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html>\n<html>\n<head>\n  <title>Sesión Expirada</title>\n  <style>\n    body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: linear-gradient(135deg, #1a1a2e, #16213e); color: white; }\n    .container { text-align: center; padding: 40px; background: rgba(255,255,255,0.1); border-radius: 20px; }\n    h1 { color: #ff6b6b; }\n    a { color: #4ecdc4; text-decoration: none; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <h1>⚠️ Sesión Expirada</h1>\n    <p>{{ $json.error || 'Tu enlace ha expirado o ya fue utilizado.' }}</p>\n    <p><a href=\"https://login-agentico-1770227340.surge.sh\">Volver a iniciar sesión</a></p>\n  </div>\n</body>\n</html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [880, 100]
+    }
+  ],
+  "connections": {
+    "Webhook Redirect": {
+      "main": [[{ "node": "Buscar Token", "type": "main", "index": 0 }]]
+    },
+    "Buscar Token": {
+      "main": [[{ "node": "Validar Token", "type": "main", "index": 0 }]]
+    },
+    "Validar Token": {
+      "main": [[{ "node": "Si Válido", "type": "main", "index": 0 }]]
+    },
+    "Si Válido": {
+      "main": [
+        [{ "node": "Marcar Usado", "type": "main", "index": 0 }],
+        [{ "node": "Error Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Marcar Usado": {
+      "main": [[{ "node": "Redirect OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "pinData": {}
+}

@@ -1,0 +1,190 @@
+{
+  "name": "PORTAL SISTEMA-AGENTICO",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "portal-content-v2",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "name": "Webhook Portal",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 200],
+      "id": "webhook-portal-js"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/Login",
+        "method": "GET",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "NOT({EMAIL} = '')"
+            }
+          ]
+        }
+      },
+      "name": "Traer Todos Usuarios",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [200, 200],
+      "id": "airtable-get-users-js"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/Portal",
+        "method": "GET",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filterByFormula",
+              "value": "NOT({ROL} = '')"
+            }
+          ]
+        }
+      },
+      "name": "Traer Todo Contenido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [400, 200],
+      "id": "airtable-get-content-js"
+    },
+    {
+      "parameters": {
+        "jsCode": "// LÓGICA MAESTRA: Cruzar Usuario con Contenido (STRICT MATCHING)\n// 1. Obtener inputs\nconst rawUsers = $(\"Traer Todos Usuarios\").all()[0].json;\nconst allUsers = (rawUsers.records || []).map(r => r.fields);\n\nconst rawContent = $(\"Traer Todo Contenido\").all()[0].json;\nconst allContent = (rawContent.records || []).map(r => r.fields);\n\nconst body = $(\"Webhook Portal\").first().json.body;\nconst targetEmail = (body.email || \"\").toString().trim().toLowerCase();\n\n// 2. Buscar Usuario\nconst user = allUsers.find(u => {\n  const emailDB = (u.EMAIL || \"\").toString().trim().toLowerCase();\n  return emailDB === targetEmail;\n});\n\nif (!user) {\n  return [{ json: { error: \"Usuario no encontrado\" } }];\n}\n\n// Validar que el usuario tenga ESTADO = 'Activo'\nconst userEstado = (user.ESTADO || \"\").toString().trim().toLowerCase();\nif (userEstado !== \"activo\") {\n  return [{ json: { error: \"Usuario no autorizado. Estado: \" + user.ESTADO } }];\n}\n\nfunction cleanString(val) {\n    if (!val) return \"\";\n    if (Array.isArray(val)) return val[0].toString().trim().toLowerCase();\n    return val.toString().trim().toLowerCase();\n}\n\nconst userRole = cleanString(user['ROL OPERATIVO']);\n\nconst matchingContent = allContent.filter(c => {\n    const rawRole = c['ROL'];\n    let contentRoles = [];\n    if (Array.isArray(rawRole)) {\n        contentRoles = rawRole.map(r => r.toString().trim().toLowerCase());\n    } else if (rawRole) {\n        contentRoles = [rawRole.toString().trim().toLowerCase()];\n    }\n    return contentRoles.includes(userRole);\n});\n\nlet content;\nif (matchingContent.length > 0) {\n   const randomIndex = Math.floor(Math.random() * matchingContent.length);\n   content = matchingContent[randomIndex];\n} else {\n   content = null;\n}\n\nlet imageUrl = \"\";\nlet defaultImage = \"https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80\";\n\nif (content && content[\"FOTOS DEL PORTAL\"] && content[\"FOTOS DEL PORTAL\"].length > 0) {\n  imageUrl = content[\"FOTOS DEL PORTAL\"][0].url;\n} else {\n  imageUrl = defaultImage;\n}\n\nfunction safeText(val) {\n    if (!val) return \"Bienvenido a tu espacio de trabajo.\";\n    if (typeof val === 'string') return val;\n    if (Array.isArray(val)) return safeText(val[0]);\n    if (typeof val === 'object') {\n        const values = Object.values(val);\n        const candidates = values.filter(v => typeof v === 'string' && v.length > 10);\n        if (candidates.length > 0) return candidates.reduce((a, b) => a.length > b.length ? a : b);\n        return values.filter(v => v !== 'generated' && v !== false && v !== true && v !== null).join(\" \");\n    }\n    return String(val);\n}\n\nlet rawQuote = content ? content[\"FRASES DEL PORTAL\"] : null;\nlet finalQuote = safeText(rawQuote);\n\nreturn [{\n  json: {\n    role: user['ROL OPERATIVO'],\n    name: user['NOMBRE'] || user.EMAIL.split('@')[0],\n    email: targetEmail,\n    status: user.ESTADO,\n    originalUrl: user.URL_PORTAL,\n    theme: {\n      quote: finalQuote,\n      imageUrl: imageUrl\n    }\n  }\n}];"
+      },
+      "name": "Cruzar Datos JS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 200],
+      "id": "code-master-logic-js"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generar Token Único y calcular expiración\nconst data = $input.first().json;\n\n// Generar UUID v4\nfunction uuidv4() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {\n    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);\n    return v.toString(16);\n  });\n}\n\nconst token = uuidv4() + '-' + Date.now().toString(36);\n\n// Expiración: 10 minutos desde ahora\nconst expiraDate = new Date(Date.now() + 10 * 60 * 1000);\nconst expiraISO = expiraDate.toISOString();\n\n// URL enmascarada\nconst maskedUrl = 'https://primary-production-0abcf.up.railway.app/webhook/redirect?token=' + token;\n\nreturn [{\n  json: {\n    ...data,\n    token: token,\n    expira: expiraISO,\n    maskedUrl: maskedUrl\n  }\n}];"
+      },
+      "name": "Generar Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 200],
+      "id": "generar-token"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/Tokens",
+        "method": "POST",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"records\": [{ \"fields\": { \"TOKEN\": \"{{ $json.token }}\", \"URL_DESTINO\": \"{{ $json.originalUrl }}\", \"EXPIRA\": \"{{ $json.expira }}\", \"USADO\": false, \"EMAIL_USUARIO\": \"{{ $json.email }}\" }}]}"
+      },
+      "name": "Guardar Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1000, 200],
+      "id": "guardar-token"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar respuesta final con URL enmascarada\nconst prevData = $('Generar Token').first().json;\n\nreturn [{\n  json: {\n    role: prevData.role,\n    name: prevData.name,\n    status: prevData.status,\n    destinationUrl: prevData.maskedUrl,\n    theme: prevData.theme\n  }\n}];"
+      },
+      "name": "Preparar Respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 200],
+      "id": "preparar-respuesta"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Responder Portal",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1400, 200],
+      "id": "respond-portal-js"
+    }
+  ],
+  "connections": {
+    "Webhook Portal": {
+      "main": [[{ "node": "Traer Todos Usuarios", "type": "main", "index": 0 }]]
+    },
+    "Traer Todos Usuarios": {
+      "main": [[{ "node": "Traer Todo Contenido", "type": "main", "index": 0 }]]
+    },
+    "Traer Todo Contenido": {
+      "main": [[{ "node": "Cruzar Datos JS", "type": "main", "index": 0 }]]
+    },
+    "Cruzar Datos JS": {
+      "main": [[{ "node": "Generar Token", "type": "main", "index": 0 }]]
+    },
+    "Generar Token": {
+      "main": [[{ "node": "Guardar Token", "type": "main", "index": 0 }]]
+    },
+    "Guardar Token": {
+      "main": [[{ "node": "Preparar Respuesta", "type": "main", "index": 0 }]]
+    },
+    "Preparar Respuesta": {
+      "main": [[{ "node": "Responder Portal", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "pinData": {}
+}

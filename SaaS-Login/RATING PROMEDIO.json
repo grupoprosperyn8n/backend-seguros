@@ -1,0 +1,101 @@
+{
+  "name": "RATING PROMEDIO",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "rating",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "name": "[WH] Obtener Rating",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 200],
+      "id": "wh-rating"
+    },
+    {
+      "parameters": {
+        "url": "https://api.airtable.com/v0/appuhslj3GFf60Tea/CALIFICACIONES?filterByFormula={VISIBLE}=TRUE()",
+        "method": "GET",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer patXXX_REMOVED_XXX"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "[DB_A] Obtener Calificaciones Visibles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 200],
+      "id": "db-get-ratings"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calcular promedio de estrellas\nconst records = $input.first().json.records || [];\n\nif (records.length === 0) {\n  return [{ json: {\n    rating: 0,\n    promedio: 0,\n    total: 0,\n    estrellas: '☆☆☆☆☆',\n    mensaje: 'Sin calificaciones aún'\n  }}];\n}\n\n// Filtrar solo los que tienen estrellas y son visibles\nconst calificaciones = records\n  .filter(r => r.fields.ESTRELLAS && r.fields.VISIBLE === true)\n  .map(r => r.fields.ESTRELLAS);\n\nif (calificaciones.length === 0) {\n  return [{ json: {\n    rating: 0,\n    promedio: 0,\n    total: 0,\n    estrellas: '☆☆☆☆☆',\n    mensaje: 'Sin calificaciones visibles'\n  }}];\n}\n\n// Calcular promedio\nconst suma = calificaciones.reduce((a, b) => a + b, 0);\nconst promedio = suma / calificaciones.length;\nconst promedioRedondeado = Math.round(promedio * 10) / 10; // 1 decimal\n\n// Generar estrellas visuales\nconst estrellasLlenas = Math.round(promedio);\nconst estrellas = '★'.repeat(estrellasLlenas) + '☆'.repeat(5 - estrellasLlenas);\n\nreturn [{ json: {\n  rating: promedioRedondeado,\n  promedio: promedioRedondeado,\n  total: calificaciones.length,\n  estrellas: estrellas,\n  mensaje: `Basado en ${calificaciones.length} calificaciones`\n}}];"
+      },
+      "name": "[JS] Calcular Promedio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 200],
+      "id": "js-calcular"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Responder Rating",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [600, 200],
+      "id": "respond-rating"
+    }
+  ],
+  "connections": {
+    "[WH] Obtener Rating": {
+      "main": [
+        [
+          {
+            "node": "[DB_A] Obtener Calificaciones Visibles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[DB_A] Obtener Calificaciones Visibles": {
+      "main": [
+        [
+          {
+            "node": "[JS] Calcular Promedio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[JS] Calcular Promedio": {
+      "main": [
+        [
+          {
+            "node": "Responder Rating",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SaaS Portal | Bienvenida</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- Background Elements -->
+    <div class="background-blobs">
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="welcome-container">
+      <div class="glass-panel">
+        
+        <!-- Left Side: Inspirational Content -->
+        <section class="inspirational-section" id="hero-section">
+          <div class="quote-container">
+            <h2 id="quote-text" class="quote-text">Cargando inspiración...</h2>
+            <div id="quote-decoration" class="quote-decoration"></div>
+          </div>
+        </section>
+
+        <!-- Right Side: User Actions -->
+        <section class="action-section">
+          <header class="welcome-header">
+            <p class="greeting-pre">Hola,</p>
+            <h1 id="user-name">Usuario</h1>
+            <span id="user-role" class="role-badge">Cargando rol...</span>
+          </header>
+
+          <div class="action-area">
+            <p class="instruction-text">Tu espacio de trabajo está listo.</p>
+            
+            <!-- Dynamic Button Container -->
+            <div id="access-btn-container">
+              <!-- Button will be injected here via JS -->
+            </div>
+          </div>
+
+          <footer class="welcome-footer">
+            <button id="logoutBtn" class="logout-link">Cerrar Sesión</button>
+          </footer>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- Portal Overlay (Iframe Container) -->
+    <div id="portal-overlay" class="portal-overlay hidden">
+      <header class="portal-header">
+        <div class="header-left">
+          <span class="portal-logo">SaaS Portal</span>
+        </div>
+        <div class="header-right">
+          <span id="portal-user-name" class="header-user">Usuario</span>
+          <button id="closePortalBtn" class="close-portal-btn">Cerrar</button>
+        </div>
+      </header>
+      <div class="iframe-container">
+        <iframe id="portal-iframe" src="" allow="clipboard-read; clipboard-write"></iframe>
+      </div>
+    </div>
+
+    <script src="welcome.js"></script>
+  </body>
+</html>

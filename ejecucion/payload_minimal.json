@@ -1,0 +1,41 @@
+{
+    "name": "Tipo",
+    "type": "singleSelect",
+    "options": {
+        "choices": [
+            {"name": "text"},
+            {"name": "textarea"},
+            {"name": "date"},
+            {"name": "time"},
+            {"name": "number"},
+            {"name": "select"},
+            {"name": "singleLineText"},
+            {"name": "longText"},
+            {"name": "richText"},
+            {"name": "currency"},
+            {"name": "percent"},
+            {"name": "rating"},
+            {"name": "duration"},
+            {"name": "dateTime"},
+            {"name": "multiselect"},
+            {"name": "email"},
+            {"name": "phone"},
+            {"name": "url"},
+            {"name": "attachment"},
+            {"name": "checkbox"},
+            {"name": "barcode"},
+            {"name": "button"},
+            {"name": "aiText"},
+            {"name": "linkedRecord"},
+            {"name": "lookup"},
+            {"name": "rollup"},
+            {"name": "formula"},
+            {"name": "user"},
+            {"name": "createdBy"},
+            {"name": "lastModifiedBy"},
+            {"name": "autoNumber"},
+            {"name": "createdTime"},
+            {"name": "lastModifiedTime"}
+        ]
+    }
+}

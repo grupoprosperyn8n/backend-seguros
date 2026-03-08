@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rafael Allende & Asociados | Seguros</title>
+    <meta
+      name="description"
+      content="Tu seguro de confianza en Rosario. Cotiza tu auto, reporta siniestros y gestiona tu cuenta."
+    />
+    <link rel="stylesheet" href="styles.css?v=final13" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  </head>
+  <body>
+    <!-- Fondo animado -->
+    <div class="background-animation"></div>
+
+    <!-- Container principal -->
+    <div class="container">
+      <!-- Header -->
+      <header class="header">
+        <div class="logo-container">
+          <img
+            src="assets/logo.png"
+            alt="Rafael Allende & Asociados"
+            class="logo"
+          />
+        </div>
+        <div class="header-info">
+          <div class="rating" id="rating-display">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Cargando...</span>
+          </div>
+          <p class="tagline">Tu tranquilidad, nuestra prioridad</p>
+          <div class="location">
+            <i class="fas fa-map-marker-alt"></i>
+            <span>Rosario, Argentina</span>
+          </div>
+        </div>
+        <div class="social-links">
+          <a
+            href="https://facebook.com/rafaelallendeasociados"
+            target="_blank"
+            aria-label="Facebook"
+          >
+            <i class="fab fa-facebook-f"></i>
+          </a>
+          <a
+            href="https://instagram.com/rafaelallendeasociados"
+            target="_blank"
+            aria-label="Instagram"
+          >
+            <i class="fab fa-instagram"></i>
+          </a>
+          <a
+            href="https://wa.me/5493415551234"
+            target="_blank"
+            aria-label="WhatsApp"
+          >
+            <i class="fab fa-whatsapp"></i>
+          </a>
+        </div>
+      </header>
+
+      <!-- Testimonios Carrusel -->
+      <section class="testimonials-section" id="testimonials">
+        <h3 class="testimonials-title">
+          <i class="fas fa-comments"></i>
+          Lo que dicen nuestros clientes
+        </h3>
+        <div class="testimonials-carousel" id="testimonials-carousel">
+          <div class="testimonial-loading">
+            <i class="fas fa-spinner fa-spin"></i>
+            <span>Cargando opiniones...</span>
+          </div>
+        </div>
+        <div class="carousel-dots" id="carousel-dots"></div>
+      </section>
+
+      <!-- Links principales -->
+      <main class="links-container">
+        <!-- Fila 1: Cotiza tu Seguro -->
+        <button class="link-button primary" onclick="openModal('cotizador')">
+          <div class="button-icon">
+            <i class="fas fa-car"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Cotiza tu Seguro</span>
+            <span class="button-subtitle">Obtén tu cotización en minutos</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 1: Reportar Siniestro -->
+        <button class="link-button danger" onclick="openModal('siniestro')">
+          <div class="button-icon">
+            <i class="fas fa-car-crash"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Reportar Siniestro</span>
+            <span class="button-subtitle">Atención inmediata 24/7</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 2: Quiénes Somos -->
+        <button class="link-button" onclick="openModal('nosotros')">
+          <div class="button-icon">
+            <i class="fas fa-shield-alt"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Quiénes Somos</span>
+            <span class="button-subtitle">Más de 20 años de experiencia</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 2: Sucursales -->
+        <button class="link-button" onclick="openModal('sucursales')">
+          <div class="button-icon">
+            <i class="fas fa-map-marked-alt"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Nuestras Sucursales</span>
+            <span class="button-subtitle">Encuéntranos cerca de ti</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 3: Preguntas Frecuentes -->
+        <button class="link-button" onclick="openModal('faq')">
+          <div class="button-icon">
+            <i class="fas fa-question-circle"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Preguntas Frecuentes</span>
+            <span class="button-subtitle">Resuelve tus dudas</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 3: Calificar Atención -->
+        <button class="link-button" onclick="openModal('calificar')">
+          <div class="button-icon">
+            <i class="fas fa-star"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Califica Atención</span>
+            <span class="button-subtitle">Tu opinión importa</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 4: Mi Cuenta (Clientes) -->
+        <button class="link-button account" onclick="openModal('cuenta')">
+          <div class="button-icon">
+            <i class="fas fa-user"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Mi Cuenta</span>
+            <span class="button-subtitle">Portal de clientes</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <!-- Fila 4: Acceso Autorizado (Empleados) -->
+        <button class="link-button employee" onclick="openModal('acceso')">
+          <div class="button-icon">
+            <i class="fas fa-key"></i>
+          </div>
+          <div class="button-content">
+            <span class="button-title">Acceso Autorizado</span>
+            <span class="button-subtitle">Portal empleados</span>
+          </div>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+      </main>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>© 2024 Rafael Allende & Asociados</p>
+        <p>Productores de Seguros Matriculados</p>
+      </footer>
+    </div>
+
+    <!-- WhatsApp Flotante -->
+    <a
+      href="https://wa.me/5493415551234?text=Hola%2C%20necesito%20información"
+      class="whatsapp-float"
+      target="_blank"
+    >
+      <i class="fab fa-whatsapp"></i>
+    </a>
+
+    <!-- MODALES -->
+
+    <!-- Modal Cotizador -->
+    <div id="modal-cotizador" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('cotizador')">
+          &times;
+        </button>
+        <div class="modal-header">
+          <i class="fas fa-car"></i>
+          <h2>Cotiza tu Seguro de Auto</h2>
+        </div>
+        <div class="modal-body">
+          <div class="video-container">
+            <iframe
+              src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+              frameborder="0"
+              allowfullscreen
+            ></iframe>
+          </div>
+          <form id="form-cotizador" class="form">
+            <div class="form-group">
+              <label for="marca">Marca del vehículo</label>
+              <select id="marca" required>
+                <option value="">Selecciona una marca</option>
+                <option value="Volkswagen">Volkswagen</option>
+                <option value="Ford">Ford</option>
+                <option value="Chevrolet">Chevrolet</option>
+                <option value="Toyota">Toyota</option>
+                <option value="Fiat">Fiat</option>
+                <option value="Renault">Renault</option>
+                <option value="Peugeot">Peugeot</option>
+                <option value="Honda">Honda</option>
+                <option value="Otra">Otra</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="modelo">Modelo</label>
+              <input
+                type="text"
+                id="modelo"
+                placeholder="Ej: Gol Trend"
+                required
+              />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="anio">Año</label>
+                <input
+                  type="number"
+                  id="anio"
+                  placeholder="2020"
+                  min="1990"
+                  max="2025"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="gnc">¿Tiene GNC?</label>
+                <select id="gnc">
+                  <option value="no">No</option>
+                  <option value="si">Sí</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="telefono">Tu WhatsApp</label>
+              <input
+                type="tel"
+                id="telefono"
+                placeholder="+54 9 341 555 1234"
+                required
+              />
+            </div>
+            <button type="submit" class="btn-submit">
+              <i class="fab fa-whatsapp"></i>
+              Solicitar Cotización
+            </button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Modal Siniestro -->
+    <div id="modal-siniestro" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('siniestro')">
+          &times;
+        </button>
+        
+        <div class="modal-header danger">
+          <i class="fas fa-car-crash"></i>
+          <h2>Reportar Siniestro</h2>
+        </div>
+        
+        <div class="modal-body">
+          <!-- PASO 1: Validación -->
+          <div id="step-validation-siniestro" class="step-siniestro active">
+            <div class="alert-box">
+              <i class="fas fa-info-circle"></i>
+              <p>Ingresá tu DNI y Patente para verificar tu cobertura</p>
+            </div>
+            
+            <div class="form-group">
+              <label for="val-dni-siniestro">DNI del Titular</label>
+              <input type="text" id="val-dni-siniestro" placeholder="12345678" />
+            </div>
+            
+            <div class="form-group">
+              <label for="val-patente-siniestro">Patente del Vehículo</label>
+              <input type="text" id="val-patente-siniestro" placeholder="ABC 123" />
+            </div>
+            
+            <!-- Error Message Container -->
+            <div id="msg-val-error-siniestro" class="error-message" style="display:none; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 0.9em; text-align: center;"></div>
+
+            <button id="btn-validar-siniestro" class="btn-submit danger" onclick="validarClienteSiniestro()">
+              <i class="fas fa-check-circle"></i> Verificar Cobertura
+            </button>
+          </div>
+
+          <!-- PASO 2: Selección de Tipo -->
+          <div id="step-selection-siniestro" class="step-siniestro">
+            <p id="msg-bienvenida-siniestro" class="welcome-msg"></p>
+            
+            <p style="color: var(--white-70); margin-bottom: 20px;">Seleccioná el tipo de siniestro:</p>
+            
+      <!-- Opciones de Siniestro (DYNAMIC) -->
+      <div id="siniestros-menu-dynamic" class="selection-grid animate-fade-in">
+          <!-- Se llena con JS desde FORM_CONFIG -->
+          <div style="text-align:center; padding: 20px; width: 100%;">
+              <i class="fas fa-spinner fa-spin"></i> Cargando opciones...
+          </div>
+      </div>
+            
+            <button class="btn-secondary" onclick="volverValidacionSiniestro()">
+              <i class="fas fa-arrow-left"></i> Volver
+            </button>
+          </div>
+
+          <!-- PASO 3: Formulario Airtable -->
+          <div id="step-form-siniestro" class="step-siniestro">
+            <div id="iframe-wrapper-siniestro"></div>
+            
+            <button class="btn-secondary" onclick="volverSeleccionSiniestro()" style="margin-top: 20px;">
+              <i class="fas fa-arrow-left"></i> Volver a Tipos
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Mi Cuenta -->
+    <div id="modal-cuenta" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('cuenta')">
+          &times;
+        </button>
+        <div class="modal-header account">
+          <i class="fas fa-user-circle"></i>
+          <h2>Acceso a Mi Cuenta</h2>
+        </div>
+        <div class="modal-body">
+          <div class="features-list">
+            <div class="feature-item">
+              <i class="fas fa-file-alt"></i>
+              <span>Ver tu póliza activa</span>
+            </div>
+            <div class="feature-item">
+              <i class="fas fa-download"></i>
+              <span>Descargar certificado de cobertura</span>
+            </div>
+            <div class="feature-item">
+              <i class="fas fa-credit-card"></i>
+              <span>Consultar cuotas pendientes</span>
+            </div>
+            <div class="feature-item">
+              <i class="fas fa-history"></i>
+              <span>Historial de siniestros</span>
+            </div>
+          </div>
+          <a
+            href="https://portal-cliente-seguros.surge.sh"
+            class="btn-submit account"
+            target="_blank"
+          >
+            <i class="fas fa-sign-in-alt"></i>
+            Ingresar a Mi Cuenta
+          </a>
+          <p class="register-link">
+            ¿No tienes cuenta?
+            <a
+              href="https://registro-agentico-1770227370.surge.sh"
+              target="_blank"
+              >Regístrate aquí</a
+            >
+          </p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Modal FAQ -->
+    <div id="modal-faq" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('faq')">&times;</button>
+        <div class="modal-header">
+          <i class="fas fa-question-circle"></i>
+          <h2>Preguntas Frecuentes</h2>
+        </div>
+        <div class="modal-body">
+          <div id="faq-dynamic-content" class="accordion">
+            <div class="loading-spinner">
+              <i class="fas fa-spinner fa-spin"></i> Cargando...
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Modal Sucursales -->
+    <div id="modal-sucursales" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('sucursales')">
+          &times;
+        </button>
+        <div class="modal-header">
+          <i class="fas fa-map-marked-alt"></i>
+          <h2>Nuestras Sucursales</h2>
+        </div>
+        <div class="modal-body">
+          <div class="branches-list">
+            <!-- Las sucursales se cargan dinámicamente desde la API -->
+          </div>
+          <div id="map" class="map-container">
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d106752.62677796!2d-60.73697!3d-32.9442!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x95b6539335d7d75f%3A0xcb0d5c65f9eefc0a!2sRosario%2C%20Santa%20Fe!5e0!3m2!1ses!2sar!4v1234567890"
+              width="100%"
+              height="200"
+              style="border: 0; border-radius: 12px"
+              allowfullscreen=""
+              loading="lazy"
+            >
+            </iframe>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Modal Quiénes Somos -->
+    <div id="modal-nosotros" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('nosotros')">
+          &times;
+        </button>
+        <div id="nosotros-dynamic-content" class="qs-modal-dynamic">
+          <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i> Cargando...
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Modal Calificar -->
+    <div id="modal-calificar" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('calificar')">
+          &times;
+        </button>
+        <div class="modal-header">
+          <i class="fas fa-star"></i>
+          <h2>Califica Nuestra Atención</h2>
+        </div>
+        <div class="modal-body">
+          <p class="rating-intro">¿Cómo fue tu experiencia con nosotros?</p>
+          <div class="star-rating">
+            <input type="radio" id="star5" name="rating" value="5" />
+            <label for="star5"><i class="fas fa-star"></i></label>
+            <input type="radio" id="star4" name="rating" value="4" />
+            <label for="star4"><i class="fas fa-star"></i></label>
+            <input type="radio" id="star3" name="rating" value="3" />
+            <label for="star3"><i class="fas fa-star"></i></label>
+            <input type="radio" id="star2" name="rating" value="2" />
+            <label for="star2"><i class="fas fa-star"></i></label>
+            <input type="radio" id="star1" name="rating" value="1" />
+            <label for="star1"><i class="fas fa-star"></i></label>
+          </div>
+          <form id="form-calificar" class="form">
+            <div class="form-group">
+              <label for="nombre-califica">Tu nombre</label>
+              <input
+                type="text"
+                id="nombre-califica"
+                placeholder="Juan Pérez"
+                required
+              />
+            </div>
+
+            <!-- ¿Sos cliente? -->
+            <div class="form-group">
+              <label>¿Sos cliente nuestro?</label>
+              <div class="toggle-group">
+                <label class="toggle-option">
+                  <input type="radio" name="es-cliente" value="Sí" />
+                  <span>Sí</span>
+                </label>
+                <label class="toggle-option">
+                  <input type="radio" name="es-cliente" value="No" checked />
+                  <span>No</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- DNI (condicional) -->
+            <div class="form-group" id="dni-group" style="display: none;">
+              <label for="dni-califica">Tu DNI</label>
+              <input
+                type="number"
+                id="dni-califica"
+                placeholder="12345678"
+              />
+              <small>Para encontrar tu ficha de cliente</small>
+            </div>
+
+            <!-- Servicio evaluado -->
+            <div class="form-group">
+              <label for="servicio-califica">¿Qué servicio estás calificando?</label>
+              <select id="servicio-califica" required>
+                <option value="">Selecciona una opción</option>
+                <option value="Atención General">Atención General</option>
+                <option value="Cotización">Cotización de Seguro</option>
+                <option value="Siniestro">Atención de Siniestro</option>
+                <option value="Gestión de Póliza">Gestión de Póliza</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="comentario">Comentarios (opcional)</label>
+              <textarea
+                id="comentario"
+                rows="3"
+                placeholder="Cuéntanos tu experiencia..."
+              ></textarea>
+            </div>
+
+            <!-- Permiso para publicar -->
+            <div class="form-group permission-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="autoriza-publicar" name="autoriza-publicar">
+                <span class="checkmark"></span>
+                <span class="checkbox-text">Autorizo mostrar mi nombre y opinión en el sitio web</span>
+              </label>
+            </div>
+
+            <!-- Permiso para usar foto (solo clientes) -->
+            <div class="form-group permission-group" id="foto-group" style="display: none;">
+              <label class="checkbox-label">
+                <input type="checkbox" id="usar-foto" name="usar-foto">
+                <span class="checkmark"></span>
+                <span class="checkbox-text">Autorizo usar mi foto de perfil en el testimonio</span>
+              </label>
+            </div>
+
+            <button type="submit" class="btn-submit">
+              <i class="fas fa-paper-plane"></i>
+              Enviar Calificación
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Modal Acceso Autorizado (Empleados) -->
+    <div id="modal-acceso" class="modal">
+      <div class="modal-content">
+        <button class="modal-close" onclick="closeModal('acceso')">
+          &times;
+        </button>
+        <div class="modal-header employee">
+          <i class="fas fa-key"></i>
+          <h2>Acceso Autorizado</h2>
+        </div>
+        <div class="modal-body">
+          <p style="text-align: center; color: #666; margin-bottom: 1.5rem;">
+            Portal exclusivo para empleados y colaboradores de Rafael Allende &amp; Asociados.
+          </p>
+          <div class="features-list">
+            <div class="feature-item">
+              <i class="fas fa-tasks"></i>
+              <span>Gestión de tareas</span>
+            </div>
+            <div class="feature-item">
+              <i class="fas fa-users"></i>
+              <span>CRM de clientes</span>
+            </div>
+            <div class="feature-item">
+              <i class="fas fa-chart-line"></i>
+              <span>Reportes y métricas</span>
+            </div>
+            <div class="feature-item">
+              <i class="fas fa-cog"></i>
+              <span>Configuración</span>
+            </div>
+          </div>
+          <a
+            href="https://login-agentico-1770227340.surge.sh/"
+            class="btn-submit employee"
+            target="_blank"
+          >
+            <i class="fas fa-sign-in-alt"></i>
+            Ingresar al Sistema
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Indicador de Scroll -->
+    <div id="scroll-indicator" class="scroll-indicator">
+      <div class="mouse">
+        <div class="wheel"></div>
+      </div>
+      <div class="arrow">
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- Global Modal Scroll Indicator -->
+    <div id="global-scroll-indicator" class="modal-scroll-indicator" style="display: none;">
+      <div class="mouse">
+        <div class="wheel"></div>
+      </div>
+      <div class="arrow">
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+
+    <script src="app.js?v=final14"></script>
+  </body>
+</html>
+

@@ -1,0 +1,39 @@
+{
+    "options": {
+        "choices": [
+            {"name": "text", "color": "blueLight2"},
+            {"name": "textarea", "color": "blueLight2"},
+            {"name": "date", "color": "cyanLight2"},
+            {"name": "time", "color": "cyanLight2"},
+            {"name": "number", "color": "tealLight2"},
+            {"name": "select", "color": "yellowLight2"},
+            {"name": "singleLineText", "color": "blue"},
+            {"name": "longText", "color": "blue"},
+            {"name": "richText", "color": "blueDark"},
+            {"name": "currency", "color": "green"},
+            {"name": "percent", "color": "green"},
+            {"name": "rating", "color": "orange"},
+            {"name": "duration", "color": "orange"},
+            {"name": "dateTime", "color": "cyan"},
+            {"name": "multiselect", "color": "yellow"},
+            {"name": "email", "color": "red"},
+            {"name": "phone", "color": "red"},
+            {"name": "url", "color": "red"},
+            {"name": "attachment", "color": "purple"},
+            {"name": "checkbox", "color": "gray"},
+            {"name": "barcode", "color": "gray"},
+            {"name": "button", "color": "gray"},
+            {"name": "aiText", "color": "purpleDark"},
+            {"name": "linkedRecord", "color": "pink"},
+            {"name": "lookup", "color": "pink"},
+            {"name": "rollup", "color": "pink"},
+            {"name": "formula", "color": "gray"},
+            {"name": "user", "color": "gray"},
+            {"name": "createdBy", "color": "gray"},
+            {"name": "lastModifiedBy", "color": "gray"},
+            {"name": "autoNumber", "color": "gray"},
+            {"name": "createdTime", "color": "gray"},
+            {"name": "lastModifiedTime", "color": "gray"}
+        ]
+    }
+}
