@@ -1559,7 +1559,7 @@ async def get_sucursales():
     Retorna la lista de sucursales configuradas en Airtable.
     Solo retorna las que tienen VISIBLE = true, ordenadas por ORDEN.
     """
-    table_suc = get_table("SUCURSALES")
+    table_suc = get_table("OFICINAS")
 
     if not table_suc:
         raise HTTPException(status_code=500, detail="Tabla SUCURSALES no configurada")
