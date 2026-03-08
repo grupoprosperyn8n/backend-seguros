@@ -401,6 +401,7 @@ async def validar_cliente(dni: str, patente: str):
         },
     }
 
+
 @app.get("/api/portal/user-data")
 async def get_portal_user_data(dni: str):
     """
@@ -424,13 +425,13 @@ async def get_portal_user_data(dni: str):
 
     cliente_record = records[0]
     cliente = cliente_record["fields"]
-    
+
     tables = {
         "polizas": get_table("POLIZAS"),
         "gestiones": get_table("GESTIÓN GENERAL"),
         "accidentes": get_table("DENUNCIA DE ACCIDENTE"),
         "robo_oc": get_table("DENUNCIA ROBO OC"),
-        "robo_incendio": get_table("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL")
+        "robo_incendio": get_table("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL"),
     }
 
     def fetch_records_by_ids(table, record_ids):
@@ -439,7 +440,7 @@ async def get_portal_user_data(dni: str):
         result = []
         chunk_size = 50
         for i in range(0, len(record_ids), chunk_size):
-            chunk = record_ids[i:i+chunk_size]
+            chunk = record_ids[i : i + chunk_size]
             conditions = ",".join([f"RECORD_ID()='{rid}'" for rid in chunk])
             formula = f"OR({conditions})"
             try:
@@ -455,40 +456,55 @@ async def get_portal_user_data(dni: str):
 
     # Fields containing the relations in Airtable for CLIENTES table
     data = {
-         "perfil": {
-             "nombres": cliente.get("NOMBRES", ""),
-             "apellido": cliente.get("APELLIDO", ""),
-             "dni": cliente.get("DNI", dni_limpio),
-             "telefono": cliente.get("TELEFONO", ""),
-             "email": cliente.get("EMAIL", ""),
-             "fecha_alta": cliente.get("FECHA DE ALTA", ""),
-             "id_registro": cliente.get("ID_REGISTRO_CLIENTE", ""),
-             # Campos calculados de Airtable
-             "total_polizas": cliente.get("✅ CANTIDAD_POLIZAS", 0),
-             "polizas_activas": cliente.get("🟢 POLIZAS_ACTIVAS", 0),
-             "polizas_anuladas": cliente.get("🔴 POLIZAS_ANULADAS", 0),
-             "polizas_tramite": cliente.get("🟡 POLIZAS_EN_TRAMITES", 0),
-             "polizas_sin_vigencia": cliente.get("🟣 POLIZAS_SIN_VIGENCIA", 0),
-             "vence_30dias": cliente.get("📆 LA_POLIZAS VENCE EN 30 DIAS", 0),
-             "vence_7dias": cliente.get("📆 LA_POLIZAS VENCE EN 7 DIAS", 0),
-         },
-         "polizas": fetch_records_by_ids(tables["polizas"], cliente.get("POLIZAS", [])),
-         "gestiones": fetch_records_by_ids(tables["gestiones"], cliente.get("GESTIÓN GENERAL", [])),
-         "accidentes": fetch_records_by_ids(tables["accidentes"], cliente.get("DENUNCIA DE ACCIDENTE", [])),
-         "robo_oc": fetch_records_by_ids(tables["robo_oc"], cliente.get("CARGA DENUNCIA OC (  CRISTALES, CERRADURAS, BATERIA, RUEDAS ) 6", [])),
-         "robo_incendio": fetch_records_by_ids(tables["robo_incendio"], cliente.get("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL", []))
+        "perfil": {
+            "nombres": cliente.get("NOMBRES", ""),
+            "apellido": cliente.get("APELLIDO", ""),
+            "dni": cliente.get("DNI", dni_limpio),
+            "telefono": cliente.get("TELEFONO", ""),
+            "email": cliente.get("EMAIL", ""),
+            "fecha_alta": cliente.get("FECHA DE ALTA", ""),
+            "id_registro": cliente.get("ID_REGISTRO_CLIENTE", ""),
+            # Campos calculados de Airtable
+            "total_polizas": cliente.get("✅ CANTIDAD_POLIZAS", 0),
+            "polizas_activas": cliente.get("🟢 POLIZAS_ACTIVAS", 0),
+            "polizas_anuladas": cliente.get("🔴 POLIZAS_ANULADAS", 0),
+            "polizas_tramite": cliente.get("🟡 POLIZAS_EN_TRAMITES", 0),
+            "polizas_sin_vigencia": cliente.get("🟣 POLIZAS_SIN_VIGENCIA", 0),
+            "vence_30dias": cliente.get("📆 LA_POLIZAS VENCE EN 30 DIAS", 0),
+            "vence_7dias": cliente.get("📆 LA_POLIZAS VENCE EN 7 DIAS", 0),
+        },
+        "polizas": fetch_records_by_ids(tables["polizas"], cliente.get("POLIZAS", [])),
+        "gestiones": fetch_records_by_ids(
+            tables["gestiones"], cliente.get("GESTIÓN GENERAL", [])
+        ),
+        "accidentes": fetch_records_by_ids(
+            tables["accidentes"], cliente.get("DENUNCIA DE ACCIDENTE", [])
+        ),
+        "robo_oc": fetch_records_by_ids(
+            tables["robo_oc"],
+            cliente.get(
+                "CARGA DENUNCIA OC (  CRISTALES, CERRADURAS, BATERIA, RUEDAS ) 6", []
+            ),
+        ),
+        "robo_incendio": fetch_records_by_ids(
+            tables["robo_incendio"],
+            cliente.get("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL", []),
+        ),
     }
 
     return {"valid": True, "data": data}
+
 
 class PortalRegisterRequest(BaseModel):
     dni: str
     patente: str
     password: str
 
+
 class PortalLoginRequest(BaseModel):
     dni: str
     password: str
+
 
 @app.post("/api/portal/register")
 async def portal_register(req: PortalRegisterRequest):
@@ -500,14 +516,22 @@ async def portal_register(req: PortalRegisterRequest):
     # Al requerir await, llamamos directamente la funcion asyncrona validate_siniestro
     val_res = await validate_siniestro(req.dni, req.patente)
     if not val_res.get("valid"):
-        return {"valid": False, "message": val_res.get("message", "Error validando patente asociada al DNI.")}
+        return {
+            "valid": False,
+            "message": val_res.get(
+                "message", "Error validando patente asociada al DNI."
+            ),
+        }
 
     # Si es valido, actualizamos Airtable
     dni_limpio = "".join(filter(str.isdigit, str(req.dni)))
     formula = f'({{DNI}} & "") = "{dni_limpio}"'
     records = table_clientes.all(formula=formula, max_records=1)
     if not records:
-        return {"valid": False, "message": "Cliente no encontrado para actualizar contraseña"}
+        return {
+            "valid": False,
+            "message": "Cliente no encontrado para actualizar contraseña",
+        }
 
     record_id = records[0]["id"]
     try:
@@ -517,6 +541,7 @@ async def portal_register(req: PortalRegisterRequest):
         print(f"Error actualizando contraseña: {e}")
         return {"valid": False, "message": "Error al guardar la contraseña"}
 
+
 @app.post("/api/portal/login-password")
 async def portal_login_password(req: PortalLoginRequest):
     table_clientes = get_table("CLIENTES")
@@ -525,7 +550,7 @@ async def portal_login_password(req: PortalLoginRequest):
 
     dni_limpio = "".join(filter(str.isdigit, str(req.dni)))
     formula = f'({{DNI}} & "") = "{dni_limpio}"'
-    
+
     try:
         records = table_clientes.all(formula=formula, max_records=1)
     except Exception as e:
@@ -539,19 +564,23 @@ async def portal_login_password(req: PortalLoginRequest):
     # Comparar contraseña
     pass_guardada = cliente.get("CONTRASEÑA PORTAL")
     if not pass_guardada:
-        return {"valid": False, "message": "Aún no has creado una contraseña. Regístrate primero."}
+        return {
+            "valid": False,
+            "message": "Aún no has creado una contraseña. Regístrate primero.",
+        }
     if pass_guardada.strip() != req.password.strip():
         return {"valid": False, "message": "La contraseña es incorrecta"}
 
     return {
-        "valid": True, 
-        "message": "Login exitoso", 
+        "valid": True,
+        "message": "Login exitoso",
         "cliente": {
             "nombres": cliente.get("NOMBRES", ""),
             "apellido": cliente.get("APELLIDO", ""),
             "dni": cliente.get("DNI", dni_limpio),
-        }
+        },
     }
+
 
 @app.get("/api/testimonios")
 async def get_testimonios():
@@ -1543,4 +1572,62 @@ async def get_quienes_somos():
 
     except Exception as e:
         print(f"❌ Error obteniendo QUIENES_SOMOS: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINT SUCURSALES (OFICINAS)
+# ==============================================================================
+
+
+@app.get("/api/sucursales")
+async def get_sucursales():
+    """
+    Retorna la lista de sucursales configuradas en Airtable.
+    Solo retorna las que tienen VISIBLE = true, ordenadas por ORDEN.
+    """
+    table_suc = get_table("OFICINAS")
+
+    if not table_suc:
+        raise HTTPException(status_code=500, detail="Tabla OFICINAS no configurada")
+
+    try:
+        records = table_suc.all(max_records=50)
+
+        sucursales = []
+        for rec in records:
+            fields = rec.get("fields", {})
+            visible = fields.get("VISIBILIDAD", False)
+            if visible:
+                google_map_field = fields.get("GOOGLE MAP", "")
+                google_map_url = ""
+                if isinstance(google_map_field, dict):
+                    google_map_url = google_map_field.get("url", "")
+                elif isinstance(google_map_field, str):
+                    google_map_url = google_map_field
+
+                sucursales.append(
+                    {
+                        "nombre": fields.get("OFICINAS", ""),
+                        "direccion": fields.get("DOMICILIO", ""),
+                        "localidad": fields.get("LOCALIDAD DE OFICINAS", ""),
+                        "horario": fields.get("HORARIO", ""),
+                        "googleMap": google_map_url,
+                        "orden": fields.get("ORDEN", 999),
+                    }
+                )
+
+        sucursales.sort(key=lambda x: x.get("orden", 999))
+
+        for s in sucursales:
+            s.pop("orden", None)
+
+        return {
+            "status": "success",
+            "cantidad": len(sucursales),
+            "sucursales": sucursales,
+        }
+
+    except Exception as e:
+        print(f"❌ Error obteniendo SUCURSALES: {e}")
         raise HTTPException(status_code=500, detail=str(e))
