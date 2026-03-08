@@ -1524,6 +1524,13 @@ async def get_quienes_somos():
                 "cantidad_sucursales": fields.get("CANTIDAD SUCURSALES", 0),
                 "cantidad_polizas": fields.get("CANTIDAD POLIZAS", 0),
                 "mostrar": fields.get("MOSTRAR ESTADISTICAS", True),
+                # Etiquetas personalizadas
+                "label_experiencia": fields.get(
+                    "ETIQUETA EXPERIENCIA", "Años de Experiencia"
+                ),
+                "label_clientes": fields.get("ETIQUETA CLIENTES", "Clientes Felices"),
+                "label_sucursales": fields.get("ETIQUETA SUCURSALES", "Sucursales"),
+                "label_polizas": fields.get("ETIQUETA POLIZAS", "Pólizas Activas"),
             },
             "mision": fields.get("MISION", ""),
             "vision": fields.get("VISION", ""),
