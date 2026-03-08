@@ -1597,13 +1597,13 @@ async def get_sucursales():
         sucursales = []
         for rec in records:
             fields = rec.get("fields", {})
-            visible = fields.get("VISIBLE", False)
+            visible = fields.get("VISIBILIDAD", False)
             if visible:
                 sucursales.append(
                     {
-                        "nombre": fields.get("NOMBRE", ""),
-                        "direccion": fields.get("DIRECCION", ""),
-                        "localidad": fields.get("LOCALIDAD", ""),
+                        "nombre": fields.get("OFICINAS", ""),
+                        "direccion": fields.get("DOMICILIO", ""),
+                        "localidad": fields.get("LOCALIDAD DE OFICINAS", ""),
                         "horario": fields.get("HORARIO", ""),
                         "googleMap": fields.get("GOOGLE MAP", ""),
                         "orden": fields.get("ORDEN", 999),
