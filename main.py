@@ -1287,6 +1287,11 @@ async def create_siniestro(request: Request):
             )
 
             for item in items:
+                # Debug completo del item
+                print(
+                    f"   🔍 DEBUG item: key='{key}', item={item}, type={type(item)}, class={item.__class__ if hasattr(item, '__class__') else 'N/A'}"
+                )
+
                 # Verificar si es un archivo - manejar diferentes tipos de objetos
                 es_archivo = False
                 filename = None
@@ -1295,10 +1300,18 @@ async def create_siniestro(request: Request):
                 if hasattr(item, "filename") and hasattr(item, "read"):
                     es_archivo = True
                     filename = item.filename
-                # Caso 2: Verificar por el nombre de la clase
+                    print(f"   🔍 DEBUG: Caso 1 - Objeto UploadFile real")
+                # Caso 2: Es un string que parece "UploadFile" (el nombre de la clase)
+                elif isinstance(item, str):
+                    # Si es un string, probablemente es el contenido del archivo codificado en base64 o el nombre
+                    print(
+                        f"   🔍 DEBUG: Caso 2 - Es string: {item[:50] if len(item) > 50 else item}"
+                    )
+                # Caso 3: Verificar por el nombre de la clase
                 elif hasattr(item, "__class__") and "UploadFile" in str(item.__class__):
                     es_archivo = True
                     filename = getattr(item, "filename", "desconocido")
+                    print(f"   🔍 DEBUG: Caso 3 - UploadFile en clase")
 
                 if es_archivo and filename:
                     # Encontrar el nombre de columna en Airtable para este campo
