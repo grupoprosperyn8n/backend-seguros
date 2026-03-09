@@ -1421,8 +1421,10 @@ async def create_siniestro(request: Request):
         # Agregar URLs de imágenes al payload
         for columna, urls in urls_imagenes.items():
             if urls:
-                airtable_payload[columna] = urls
-                print(f"   📎 URLs agregadas a {columna}: {len(urls)} imágenes")
+                # Airtable requiere [{url: "..."}, ...] para campos adjuntos, NO strings simples
+                airtable_payload[columna] = [{"url": u} for u in urls]
+                print(f"   📎 URLs agregadas a {columna}: {len(urls)} imágenes → {[u[:40] for u in urls]}")
+
 
         t_destino = get_table(tabla_destino)
         if not t_destino:
