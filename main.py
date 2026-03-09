@@ -1182,7 +1182,8 @@ async def create_siniestro(request: Request):
         dni = form_data.get("dni")
         datos_json = form_data.get("datos")
 
-        print(f"📝 create_siniestro v8 (ImgBB): {tipo_formulario}")
+        # Force railway update v9
+        print(f"📝 create_siniestro v9 (ImgBB): {tipo_formulario}")
 
         if not tipo_formulario or not datos_json:
             raise HTTPException(
