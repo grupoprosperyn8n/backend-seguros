@@ -1466,15 +1466,8 @@ async def get_faqs():
         raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
     try:
-        # Intentar con filtro VISIBLE (pyairtable 2.x usa formula=)
-        try:
-            records = table_faqs.all(
-                formula="{VISIBLE}", sort=[{"field": "ORDEN", "direction": "asc"}]
-            )
-        except Exception as formula_error:
-            # Si falla el filtro, traer todo
-            print(f"⚠️ FAQ filter failed, getting all: {formula_error}")
-            records = table_faqs.all(sort=[{"field": "ORDEN", "direction": "asc"}])
+        # Sin filtro para evitar errores de compatibilidad
+        records = table_faqs.all(sort=[{"field": "ORDEN", "direction": "asc"}])
 
         faqs = []
         for rec in records:
@@ -1516,13 +1509,8 @@ async def get_quienes_somos():
         )
 
     try:
-        # Intentar con filtro VISIBLE
-        try:
-            records = table_qs.all(formula="{VISIBLE}", max_records=1)
-        except Exception as formula_error:
-            # Si falla el filtro, traer el primer registro
-            print(f"⚠️ QUIENES_SOMOS filter failed, getting first: {formula_error}")
-            records = table_qs.all(max_records=1)
+        # Sin filtro para evitar errores de compatibilidad
+        records = table_qs.all(max_records=1)
 
         if not records:
             return {
