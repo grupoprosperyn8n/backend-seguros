@@ -1198,24 +1198,77 @@ async function handleSiniestroSubmit(e) {
         console.log("🎄 Intentando mostrar Swal...");
         
         if (typeof Swal !== 'undefined') {
+            const numeroGestion = data.id || 'Asignado';
+            
             Swal.fire({
                 icon: hayFallidos ? 'warning' : 'success',
                 title: hayFallidos ? '¡Denuncia Recibida con Advertencias!' : '¡Denuncia Recibida!',
                 html: htmlMsg,
+                showDenyButton: true,
                 confirmButtonColor: '#4ade80',
-                confirmButtonText: 'Aceptar'
-            }).then(() => {
-                console.log("🎄 Swal cerrado, recargando...");
-                location.reload();
+                denyButtonColor: '#3b82f6',
+                confirmButtonText: 'Aceptar',
+                denyButtonText: '<i class="fas fa-download"></i> Guardar Comprobante',
+                allowOutsideClick: false
+            }).then((result) => {
+                if (result.isDenied) {
+                    // Generar y descargar el comprobante en texto simple
+                    const fecha = new Date().toLocaleString();
+                    const textoComprobante = `
+COMPROBANTE DE DENUNCIA DE SINIESTRO
+Rafael Allende & Asociados
+
+Fecha: ${fecha}
+Número de Gestión: ${numeroGestion}
+Estado: Recibido correctamente.
+Archivos adjuntos: ${archivosSubidos}
+                    
+Un asesor te contactará a la brevedad.
+Gracias por confiar en nosotros.
+`.trim();
+
+                    // Intentar usar Web Share API si está en celular
+                    if (navigator.share) {
+                        navigator.share({
+                            title: 'Comprobante de Siniestro',
+                            text: textoComprobante
+                        }).then(() => {
+                            location.reload();
+                        }).catch((err) => {
+                            console.log('Error compartiendo:', err);
+                            descargarTxt(textoComprobante, numeroGestion);
+                            location.reload();
+                        });
+                    } else {
+                        // Fallback: Descargar TXT
+                        descargarTxt(textoComprobante, numeroGestion);
+                        location.reload();
+                    }
+                } else {
+                    location.reload();
+                }
             }).catch((err) => {
                 console.error("🎄 Error en Swal:", err);
-                alert('¡Denuncia enviada correctamente!\n\nUn asesor te contactará a la brevedad.\n\nNúmero de gestión: ' + (data.id || 'Asignado'));
+                alert('¡Denuncia enviada correctamente!\n\nUn asesor te contactará a la brevedad.\n\nNúmero de gestión: ' + numeroGestion);
                 location.reload();
             });
         } else {
             console.log("🎄 Swal no disponible, usando alert");
             alert('¡Denuncia enviada correctamente!\n\nUn asesor te contactará a la brevedad.\n\nNúmero de gestión: ' + (data.id || 'Asignado'));
             location.reload();
+        }
+
+        // Función auxiliar para descargar archivo de texto
+        function descargarTxt(texto, numeroGestion) {
+            const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `comprobante_siniestro_${numeroGestion.replace(/[/\\?%*:|"<>]/g, '-')}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
         }
 
 
