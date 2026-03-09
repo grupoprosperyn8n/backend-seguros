@@ -492,6 +492,26 @@ async def get_portal_user_data(dni: str):
         ),
     }
 
+    # 4. RESOLUCIÓN DE EMPLEADOS (Reemplazar IDs por nombres)
+    try:
+        table_emp = get_table("EMPLEADOS")
+        if table_emp:
+            emp_recs = table_emp.all(fields=["NOMBRE Y APELLIDO"])
+            emp_map = {r["id"]: r["fields"].get("NOMBRE Y APELLIDO", "Sin Nombre") for r in emp_recs}
+            
+            def resolve_emp(record_list):
+                for rec in record_list:
+                    atendido = rec.get("ATENDIDO X")
+                    if isinstance(atendido, list):
+                        rec["ATENDIDO X"] = ", ".join([emp_map.get(rid, rid) for rid in atendido])
+            
+            resolve_emp(data["gestiones"])
+            resolve_emp(data["accidentes"])
+            resolve_emp(data["robo_oc"])
+            resolve_emp(data["robo_incendio"])
+    except Exception as e:
+        print(f"Error resolviendo nombres de empleados: {e}")
+
     return {"valid": True, "data": data}
 
 
