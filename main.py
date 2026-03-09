@@ -431,7 +431,7 @@ async def get_portal_user_data(dni: str):
         "gestiones": get_table("GESTIÓN GENERAL"),
         "accidentes": get_table("DENUNCIA DE ACCIDENTE"),
         "robo_oc": get_table("DENUNCIA ROBO OC"),
-        "robo_incendio": get_table("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL"),
+        "robo_incendio": get_table("DENUNCIA ROBO / INCENDIO"),
     }
 
     def fetch_records_by_ids(table, record_ids):
@@ -488,7 +488,7 @@ async def get_portal_user_data(dni: str):
         ),
         "robo_incendio": fetch_records_by_ids(
             tables["robo_incendio"],
-            cliente.get("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL", []),
+            cliente.get("DENUNCIA ROBO TOTAL , INCENDIO  TOTAL/PARCIAL 2", []),
         ),
     }
 
@@ -502,8 +502,25 @@ async def get_portal_user_data(dni: str):
             def resolve_emp(record_list):
                 for rec in record_list:
                     atendido = rec.get("ATENDIDO X")
+                    if not atendido:
+                        rec["ATENDIDO X"] = "AGENTE IA"
+                        continue
+                        
                     if isinstance(atendido, list):
-                        rec["ATENDIDO X"] = ", ".join([emp_map.get(rid, rid) for rid in atendido])
+                        # Caso Airtable: List (Linked Record o Lookup)
+                        resolved_names = []
+                        for val in atendido:
+                            if isinstance(val, str) and val.startswith("rec"):
+                                resolved_names.append(emp_map.get(val, val))
+                            else:
+                                resolved_names.append(str(val))
+                        rec["ATENDIDO X"] = ", ".join(resolved_names) or "AGENTE IA"
+                    elif isinstance(atendido, str):
+                        # Caso poco común: Single string (ID o ya el nombre)
+                        if atendido.startswith("rec"):
+                            rec["ATENDIDO X"] = emp_map.get(atendido, atendido)
+                        else:
+                            rec["ATENDIDO X"] = atendido
             
             resolve_emp(data["gestiones"])
             resolve_emp(data["accidentes"])

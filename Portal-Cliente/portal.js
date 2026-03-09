@@ -96,8 +96,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function strVal(v) {
         if (!v) return '';
-        if (Array.isArray(v)) return v.join(', ');
-        return String(v);
+        // Limpieza de strings técnicos detectados
+        const clean = (val) => {
+            const s = String(val);
+            if (s === 'emptyDependency') return '';
+            return s;
+        };
+        if (Array.isArray(v)) return v.map(clean).filter(Boolean).join(', ');
+        return clean(v);
     }
 
     // Clase CSS de badge según texto — mapeo exacto al sistema del backend
@@ -344,13 +350,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         let accIdx = 0;
         accidentes.forEach(a => {
-            const tipo      = strVal(a['ATASCAMIENTO - CHOQUE -DAÑO - OTRO']) || strVal(a['TIPO DE ATENCIÓN']);
+            const tipo      = strVal(a['ATASCAMIENTO - CHOQUE -DAÑO - OTRO']) || strVal(a['TIPO DE ATENCIÓN']) || strVal(a['CLASIFICACIÓN']);
             const culpa     = strVal(a['CULPABILIDAD']);
             const tratam    = strVal(a['TRATAMIENTO']) || strVal(a['Tratamiento']);
             const resoluc   = strVal(a['TIPO DE RESOLUCION']) || strVal(a['Elegir Resolucion ']);
             const patente   = strVal(a['1) PATENTE DE SU VEHICULO']);
-            const marca     = strVal(a['MARCA DEL VEHICULO Compilación (de N° POLIZA)']);
-            const modelo    = strVal(a['MODELO DEL VEHICULO']);
+            const marca     = strVal(a['MARCA DEL VEHICULO Compilación (de N° POLIZA)']) || strVal(a['MARCA DEL VEHICULO']);
+            const modelo    = strVal(a['MODELO DEL VEHICULO']) || strVal(a['MODELO DEL  VEHICULO']);
             const vehiculo  = [marca, modelo].filter(Boolean).join(' ');
             const cobertura = strVal(a['COBERTURA']);
             const fecha     = strVal(a['FECHA DE CREACION']);
@@ -495,9 +501,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         robos.forEach(r => {
             const idReg    = strVal(r['ID_UNICO_GESTION']);
-            const tipo     = strVal(r['TIPO DE ROBO / INCENDIO ']) || strVal(r['TIPO DE ATENCIÓN']);
+            const tipo     = strVal(r['TIPO DE ROBO / INCENDIO ']) || strVal(r['CLASIFICACIÓN DEL SINIESTRO']) || strVal(r['TIPO DE ATENCIÓN']);
             const alcance  = strVal(r['ALCANCE DE COBERTURA']);
-            const tratam   = strVal(r['Tratamiento']) || strVal(r['TIPO DE ATENCIÓN']);
+            const tratam   = strVal(r['Tratamiento']) || strVal(r['TIPO DE ATENCIÓN']) || strVal(r['TRATAMIENTO']);
             const resoluc  = strVal(r['TIPO DE RESOLUCION']) || strVal(r['Elegir Resolucion ']);
             const fecha    = strVal(r['FECHA DE CREACION']);
             const atendido = strVal(r['ATENDIDO X']);
