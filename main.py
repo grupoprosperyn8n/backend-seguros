@@ -1466,7 +1466,7 @@ async def get_faqs():
         raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
     try:
-        # Intentar con filtro VISIBLE
+        # Intentar con filtro VISIBLE (pyairtable 2.x usa formula=)
         try:
             records = table_faqs.all(
                 formula="{VISIBLE}", sort=[{"field": "ORDEN", "direction": "asc"}]
