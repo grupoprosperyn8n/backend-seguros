@@ -1279,8 +1279,9 @@ async def create_siniestro(request: Request):
             )
 
             for item in items:
-                # Verificar si es un archivo (UploadFile)
-                if isinstance(item, UploadFile) and item.filename:
+                # Verificar si es un archivo - manejar diferentes tipos de objetos
+                es_archivo = hasattr(item, "filename") and hasattr(item, "read")
+                if es_archivo and item.filename:
                     # Encontrar el nombre de columna en Airtable para este campo
                     columna = field_map.get(key)
                     print(f"   🔍 DEBUG: Mapeo encontrado: '{key}' -> '{columna}'")
