@@ -1361,8 +1361,55 @@ async def create_siniestro(request: Request):
         print(f"   📦 Payload Airtable keys: {list(airtable_payload.keys())}")
 
         # ==================================================================
-        # 7. CREAR REGISTRO EN AIRTABLE
+        # 7. SUBIR ARCHIVOS A IMGBB PRIMERO
         # ==================================================================
+        urls_imagenes = {}  # {columna: [urls]}
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for columna, uploads in archivos_para_subir.items():
+                urls_imagenes[columna] = []
+                for up_file in uploads:
+                    filename = "imagen_desconocida.jpg"
+                    try:
+                        await up_file.seek(0)
+                        content = await up_file.read()
+                        filename = up_file.filename or "imagen.jpg"
+
+                        print(f"🚀 Subiendo a ImgBB: {filename} -> {columna}")
+
+                        # Subir a ImgBB
+                        files = {"image": (filename, content, "image/jpeg")}
+                        data = {"key": "6b042638d61c152b076d88dae24d0200"}
+
+                        resp = await client.post(
+                            "https://api.imgbb.com/1/upload", files=files, data=data
+                        )
+
+                        if resp.status_code == 200:
+                            result = resp.json()
+                            if result.get("success"):
+                                img_url = result["data"]["url"]
+                                urls_imagenes[columna].append(img_url)
+                                print(f"   ✅ ImgBB OK: {filename} -> {img_url}")
+                            else:
+                                print(f"   ❌ ImgBB error: {result}")
+                        else:
+                            print(
+                                f"   ❌ ImgBB HTTP error: {resp.status_code} - {resp.text}"
+                            )
+
+                    except Exception as e:
+                        print(f"   ❌ Excepción subiendo {filename}: {e}")
+
+        # ==================================================================
+        # 8. CREAR REGISTRO EN AIRTABLE CON URLS
+        # ==================================================================
+        # Agregar URLs de imágenes al payload
+        for columna, urls in urls_imagenes.items():
+            if urls:
+                airtable_payload[columna] = urls
+                print(f"   📎 URLs agregadas a {columna}: {len(urls)} imágenes")
+
         t_destino = get_table(tabla_destino)
         if not t_destino:
             raise HTTPException(
@@ -1380,54 +1427,7 @@ async def create_siniestro(request: Request):
             id_gestion = record.get("fields", {}).get("ID_GESTION_UNICO", record_id)
             print(f"✅ Siniestro creado exitosamente: {record_id} ({id_gestion})")
 
-            # ==================================================================
-            # 8. SUBIR ARCHIVOS VIA AIRTABLE CONTENT API
-            # ==================================================================
-            # https://content.airtable.com/v0/{baseId}/{tableIdOrName}/{recordId}/{fieldIdOrName}/uploadAttachment
-            total_subidos = 0
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                for columna, uploads in archivos_para_subir.items():
-                    for up_file in uploads:
-                        try:
-                            # Re-leer contenido (por si acaso se leyó antes, aunque aquí no debería)
-                            await up_file.seek(0)
-                            content = await up_file.read()
-
-                            print(
-                                f"🚀 Subiendo a Content API: {up_file.filename} -> {columna}"
-                            )
-
-                            # Encode table name for URL
-                            # Note: tabla_destino and columna are strings
-                            url = f"https://content.airtable.com/v0/{BASE_ID}/{tabla_destino}/{record_id}/{columna}/uploadAttachment"
-
-                            # Content API requires Multipart
-                            files = {
-                                "file": (
-                                    up_file.filename,
-                                    content,
-                                    up_file.content_type or "image/jpeg",
-                                )
-                            }
-                            headers = {"Authorization": f"Bearer {API_KEY}"}
-
-                            resp = await client.post(url, headers=headers, files=files)
-
-                            if resp.status_code in (200, 201):
-                                total_subidos += 1
-                                print(f"   ✅ Subido OK: {up_file.filename}")
-                            else:
-                                archivos_fallidos.append(up_file.filename)
-                                print(
-                                    f"   ❌ Error Content API ({resp.status_code}): {resp.text}"
-                                )
-
-                        except Exception as upload_err:
-                            archivos_fallidos.append(up_file.filename)
-                            print(
-                                f"   ❌ Excepción subiendo {up_file.filename}: {upload_err}"
-                            )
+            total_subidos = sum(len(urls) for urls in urls_imagenes.values())
 
             return {
                 "status": "success",
