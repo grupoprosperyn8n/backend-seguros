@@ -1182,7 +1182,7 @@ async def create_siniestro(request: Request):
         dni = form_data.get("dni")
         datos_json = form_data.get("datos")
 
-        print(f"📝 create_siniestro v4 (Python puro): {tipo_formulario}")
+        print(f"📝 create_siniestro v8 (ImgBB): {tipo_formulario}")
 
         if not tipo_formulario or not datos_json:
             raise HTTPException(
