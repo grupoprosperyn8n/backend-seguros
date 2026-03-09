@@ -1514,10 +1514,13 @@ async def get_faqs():
         raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
     try:
-        # Filtramos por las visibles usando pyairtable syntax pero ordenamos MANUALMENTE
-        # porque la lib `sort=` tira Error 500 en algunas versiones.
-        records = table_faqs.all(formula="{VISIBLE} = 1")
-        # Ordenar localmente por campo ORDEN (default 999 si no existe)
+        # Traemos todas las FAQs y filtramos en memoria para evitar bugs del SDK con `formula=`
+        all_records = table_faqs.all()
+        # Filtrar localmente por campo VISIBLE = true y ordenar por ORDEN (default 999)
+        records = [
+            r for r in all_records 
+            if r.get("fields", {}).get("VISIBLE", False)
+        ]
         records.sort(key=lambda rec: rec.get("fields", {}).get("ORDEN", 999))
 
         faqs = []
