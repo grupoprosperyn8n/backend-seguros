@@ -1269,6 +1269,14 @@ async def create_siniestro(request: Request):
         # Debug: mostrar todas las keys recibidas en form_data
         print(f"   🔍 DEBUG: Keys en form_data: {list(form_data.keys())}")
 
+        # DEBUG EXTRA: ver tipo real de cada valor
+        for key in form_data.keys():
+            items = form_data.getlist(key)
+            for item in items:
+                print(
+                    f"   🔍 DEBUG tipo: key='{key}', valor={item}, tipo_real={type(item)}, hasattr_filename={hasattr(item, 'filename')}"
+                )
+
         # Recolectar archivos - manejar múltiples archivos por campo
         for key in form_data.keys():
             # Usar getlist para obtener todos los valores (incluyendo múltiples archivos)
@@ -1280,8 +1288,19 @@ async def create_siniestro(request: Request):
 
             for item in items:
                 # Verificar si es un archivo - manejar diferentes tipos de objetos
-                es_archivo = hasattr(item, "filename") and hasattr(item, "read")
-                if es_archivo and item.filename:
+                es_archivo = False
+                filename = None
+
+                # Caso 1: Objeto UploadFile real
+                if hasattr(item, "filename") and hasattr(item, "read"):
+                    es_archivo = True
+                    filename = item.filename
+                # Caso 2: Verificar por el nombre de la clase
+                elif hasattr(item, "__class__") and "UploadFile" in str(item.__class__):
+                    es_archivo = True
+                    filename = getattr(item, "filename", "desconocido")
+
+                if es_archivo and filename:
                     # Encontrar el nombre de columna en Airtable para este campo
                     columna = field_map.get(key)
                     print(f"   🔍 DEBUG: Mapeo encontrado: '{key}' -> '{columna}'")
@@ -1290,7 +1309,7 @@ async def create_siniestro(request: Request):
                             archivos_para_subir[columna] = []
                         archivos_para_subir[columna].append(item)
                         print(
-                            f"📂 Recolectado para subir: {key} ({item.filename}) -> {columna}"
+                            f"📂 Recolectado para subir: {key} ({filename}) -> {columna}"
                         )
                     else:
                         print(
