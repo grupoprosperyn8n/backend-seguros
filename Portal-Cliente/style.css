@@ -68,7 +68,7 @@ body {
 /* Login Card */
 .login-container {
   width: 100%;
-  max-width: 420px;
+  max-width: 480px; /* Slightly wider to accommodate text */
   padding: 20px;
 }
 
@@ -161,6 +161,18 @@ button:active {
 /* Utilities */
 .hidden {
   display: none;
+}
+
+.register-link p {
+  white-space: nowrap; /* Prevent line breaks */
+  font-size: 0.95rem;
+}
+
+/* Ensure it drops font size slightly on very small screens to fit */
+@media (max-width: 420px) {
+  .register-link p {
+    font-size: 0.8rem;
+  }
 }
 
 #message {
