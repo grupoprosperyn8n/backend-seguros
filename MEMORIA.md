@@ -15,13 +15,16 @@ Sistema de gestión inteligente para una compañía de seguros. Incluye autentic
 ## Componentes Principales
 
 ### 1. SaaS-Login
+
 Portal de autenticación con:
+
 - Login con credenciales validadas contra Airtable
 - Registro de nuevos usuarios (requiere aprobación)
 - Sistema de tokens temporales (URL masking)
 - Redirección por rol a diferentes interfaces de Airtable
 
 **URLs Producción:**
+
 | Servicio | URL |
 |----------|-----|
 | Login | https://login-agentico-1770227340.surge.sh |
@@ -121,4 +124,13 @@ Utilizar siempre estos datos para verificar flujos de extremo a extremo:
 - ✅ **Frontend (Linktree):** Añadido botón interactivo en el modal final para Descargar/Compartir el ticket comprobante de la denuncia. 
 - 🟢 **Estado actual:** Siniestros funcionando End-to-End en Producción (Railway v9 + Surge).
 
-*Última actualización: 2026-03-09 15:40*
+### [2026-03-10] Rediseño Global: Glassmorphism Premium Compacto
+- ✅ **UI/UX:** Despliegue global del diseño "Glassmorphism Premium" en los 8 modales del Linktree.
+- ✅ **Optimización:** Reducción agresiva de dimensiones (headers -30%, inputs/botones compactos) para una estética más profesional y equilibrada.
+- ✅ **Interactividad:** Resolución de problemas de scroll (`max-height`, `overflow-y`) e interactividad con controles de video YouTube (`backdrop-filter` moderado).
+- ✅ **Variantes:** Implementación de variantes temáticas (`danger`, `account`, `employee`) dentro del sistema glassmorphism.
+- ✅ **Pulido Final:** Corrección de paletas de color en modales específicos (Ajuste a tonos lilas en "Acceso Autorizado"), ocultamiento de scrollbars nativos y prevención de saltos de línea (text wrapping) en los enlaces del Portal de Autogestión.
+- ✅ **Enlaces Actualizados:** Redireccionamiento correcto del enlace de registro de la app al nuevo Portal SaaS (`portal-cliente-seguros.surge.sh/crear-clave.html`).
+- 🟢 **Estado actual:** Interfaz 100% premium y funcional desplegada en [seguros-app-linktree.surge.sh](https://seguros-app-linktree.surge.sh/) y [portal-cliente-seguros.surge.sh](https://portal-cliente-seguros.surge.sh/).
+
+*Última actualización: 2026-03-10 20:40*

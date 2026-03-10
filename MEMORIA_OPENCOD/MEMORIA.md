@@ -121,4 +121,9 @@ Utilizar siempre estos datos para verificar flujos de extremo a extremo:
 - ✅ **Frontend (Linktree):** Añadido botón interactivo en el modal final para Descargar/Compartir el ticket comprobante de la denuncia. 
 - 🟢 **Estado actual:** Siniestros funcionando End-to-End en Producción (Railway v9 + Surge).
 
-*Última actualización: 2026-03-09 15:40*
+### [2026-03-10] Corrección de Sucursales y Sincronización
+- ✅ **Backend (Sucursales):** Se corrigió el nombre de las sucursales en el modal del Linktree. Ahora utiliza el campo `NOMBRE_OFICINA_LIMPIO_WEB` de Airtable, con lógica robusta para manejar campos tipo *Lookup* (listas).
+- ✅ **Sincronización Git:** Se sincronizaron las ramas `main` y `master`. Se forzó el push a `master` para asegurar que el despliegue automático de Railway tome la última versión.
+- ✅ **Submódulos:** Actualización y sincronización del submódulo `backend` con su repositorio remoto.
+
+*Última actualización: 2026-03-10 00:00*
