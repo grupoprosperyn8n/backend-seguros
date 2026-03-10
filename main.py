@@ -1690,6 +1690,13 @@ async def get_sucursales():
             fields = rec.get("fields", {})
             visible = fields.get("VISIBILIDAD", False)
             if visible:
+                def get_val(f_dict, key, default=""):
+                    val = f_dict.get(key)
+                    if val is None: return default
+                    if isinstance(val, list):
+                        return ", ".join(map(str, val)) if val else default
+                    return str(val)
+
                 google_map_field = fields.get("GOOGLE MAP", "")
                 google_map_url = ""
                 if isinstance(google_map_field, dict):
@@ -1699,10 +1706,10 @@ async def get_sucursales():
 
                 sucursales.append(
                     {
-                        "nombre": fields.get("OFICINAS", ""),
-                        "direccion": fields.get("DOMICILIO", ""),
-                        "localidad": fields.get("LOCALIDAD DE OFICINAS", ""),
-                        "horario": fields.get("HORARIO", ""),
+                        "nombre": get_val(fields, "NOMBRE_OFICINA_LIMPIO_WEB", fields.get("OFICINAS", "")),
+                        "direccion": get_val(fields, "DOMICILIO"),
+                        "localidad": get_val(fields, "LOCALIDAD DE OFICINAS"),
+                        "horario": get_val(fields, "HORARIO"),
                         "googleMap": google_map_url,
                         "orden": fields.get("ORDEN", 999),
                     }
