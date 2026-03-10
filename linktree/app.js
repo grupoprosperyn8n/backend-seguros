@@ -221,7 +221,7 @@ function renderSucursales() {
                 <i class="fas fa-building"></i>
             </div>
             <div class="branch-info">
-                <h3>${suc.nombre}</h3>
+                <h3>${suc.nombre.replace(/\s*\([^)]*\)\s*$/, '').trim()}</h3>
                 <p>${suc.direccion}</p>
                 <span class="branch-locality">${suc.localidad}</span>
                 <span class="branch-hours">${suc.horario}</span>
@@ -885,28 +885,39 @@ function mostrarSeleccionSiniestro(data) {
     let coverageBadges = '';
     
     if (poliza.vida || poliza.estado.includes('VIDA')) {
-        coverageBadges += `<span class="status-badge vida"><i class="fas fa-heart"></i> VIDA</span>`;
+        coverageBadges += `<span class="info-pill vida"><i class="fas fa-heart"></i> VIDA</span>`;
     }
     
     // Detectar Auxilio por flag o texto
     if (poliza.auxilio || poliza.estado.includes('AUX')) {
-        coverageBadges += `<span class="status-badge aux"><i class="fas fa-tools"></i> AUXILIO</span>`;
+        coverageBadges += `<span class="info-pill aux"><i class="fas fa-tools"></i> AUXILIO</span>`;
     }
 
     document.getElementById('msg-bienvenida-siniestro').innerHTML = `
         <div class="welcome-card">
             <h3>👋 Hola, ${data.cliente.nombres}</h3>
-            <div class="policy-details">
-                <p><strong>${poliza.tipo_vehiculo}</strong> | ${poliza.patente}</p>
-                <p class="sub-info"><i class="fas fa-shield-alt"></i> Póliza: ${poliza.numero}</p>
+            
+            <div class="policy-details-grid">
+                <!-- Columna 1: Vehículo -->
+                <div class="policy-column">
+                    <span class="info-pill"><i class="fas fa-car"></i> ${poliza.tipo_vehiculo}</span>
+                    <span class="info-pill"><i class="fas fa-id-card"></i> ${poliza.patente}</span>
+                </div>
                 
-                <div class="badges-container">
-                    <span class="status-badge ${estadoLimpio.includes('VIGENTE') || estadoLimpio.includes('VENCE') ? 'vigente' : ''}">
-                        ${estadoLimpio}
+                <!-- Columna 2: Póliza -->
+                <div class="policy-column">
+                    <span class="info-pill"><i class="fas fa-shield-alt"></i> Póliza: ${poliza.numero}</span>
+                    <span class="info-pill ${estadoLimpio.includes('VIGENTE') || estadoLimpio.includes('VENCE') ? 'vigente' : ''}">
+                        <i class="fas fa-clock"></i> ${estadoLimpio}
                     </span>
                 </div>
                 
-                ${coverageBadges ? `<div class="badges-container coverage-group">${coverageBadges}</div>` : ''}
+                <!-- Columna 3: Coberturas Extra (Si existen) -->
+                ${coverageBadges ? `
+                <div class="policy-column">
+                    ${coverageBadges}
+                </div>
+                ` : ''}
             </div>
         </div>
     `;
