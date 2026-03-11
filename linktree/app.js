@@ -700,6 +700,15 @@ function goToTestimonial(index) {
 document.addEventListener('DOMContentLoaded', () => {
     console.log('🛡️ Rafael Allende & Asociados - Linktree Premium cargado');
     
+    // Auto-open modal if URL param exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const modalToOpen = urlParams.get('modal');
+    if (modalToOpen) {
+        setTimeout(() => {
+            openModal(modalToOpen);
+        }, 500);
+    }
+
     // Cargar configuración de formularios
     loadFormConfig();
     

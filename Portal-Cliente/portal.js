@@ -15,8 +15,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         tabs: document.querySelectorAll('.tab-btn'),
         panes: document.querySelectorAll('.tab-pane'),
         loading: document.getElementById('loading-indicator'),
-        contentArea: document.getElementById('content-area')
+        contentArea: document.getElementById('content-area'),
+        // Nodos del Modal Global
+        modal: {
+            overlay: document.getElementById('portal-detail-modal'),
+            closeBtn: document.getElementById('pdm-close'),
+            title: document.getElementById('pdm-title'),
+            body: document.getElementById('pdm-body')
+        }
     };
+
+    // Modal Logic
+    function openModal(titleHTML, bodyHTML) {
+        ui.modal.title.innerHTML = titleHTML;
+        ui.modal.body.innerHTML = bodyHTML;
+        ui.modal.overlay.classList.add('active');
+    }
+    function closeModal() {
+        ui.modal.overlay.classList.remove('active');
+        // Clear timeout/listeners if needed
+        setTimeout(() => ui.modal.body.innerHTML = '', 300);
+    }
+    
+    ui.modal.closeBtn.addEventListener('click', closeModal);
+    ui.modal.overlay.addEventListener('click', (e) => {
+        if (e.target === ui.modal.overlay) closeModal();
+    });
+    // Close on ESC mapping
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeModal();
+    });
 
     // 3. Navegación de tabs
     ui.tabs.forEach(btn => {
@@ -229,11 +257,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ========================
     // PÓLIZAS
-    // Imagen ref:
-    //   - N° póliza como título
-    //   - Estado badge top-right: ALTA verde / ANULACION rojo / VENCE EN 30 DIAS naranja / VENCE EN 7 DIAS magenta
-    //   - Campos inline: Vehículo | Cobertura (badge) | Vence
-    //   - Borde izquierdo coloreado según estado
     // ========================
     function renderPolizas(polizas) {
         const pane = document.getElementById('tab-polizas');
@@ -254,6 +277,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             const cobert   = strVal(p['COBERTURA']);
             const vence    = strVal(p['FECHA VENCIMIENTO DE LA POLIZA']);
             const nPoliza  = strVal(p['N° DE POLIZA']) || strVal(p['ETIQUETA_POLIZA']) || 'Sin número';
+            
+            // Extract Documentacion array from Airtable (list of attachments)
+            const docArray = p['DOCUMENTACION'];
+            let docButtonHTML = '';
+            if (Array.isArray(docArray) && docArray.length > 0) {
+                // Airtable objects hold URL in the .url property
+                const docUrl = docArray[0].url;
+                if (docUrl) {
+                    docButtonHTML = `
+                    <div style="margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 12px;">
+                        <a href="${docUrl}" target="_blank" class="btn-download-doc" title="Descargar PDF">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Planilla de Póliza
+                        </a>
+                    </div>`;
+                }
+            }
 
             // Color borde izquierdo según estado
             let borderColor = 'var(--primary)';
@@ -277,26 +317,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <span>Vehículo: <strong style="color:var(--white);">${vehiculo}</strong></span>
                     <span>Cobertura: ${cobert ? makeBadge(cobert, 'badge-orange') : '-'}</span>
                     <span>Vence: <strong style="color:var(--white);">${vence || '-'}</strong></span>
-                </div>`;
+                </div>
+                ${docButtonHTML}
+            `;
             pane.appendChild(card);
         });
     }
 
     // ========================
-    // GESTIONES
-    // Imagen ref:
-    //   - ID badge morado (ID_UNICO_GESTION) + estado badge top-right (NUEVA gris)
-    //   - Tipo badge (ALTAS verde / ANULACIÓN rojo / CONSULTA azul / POLIZA ACTIVADA verde / DENUNCIA ROBO verde-azul / ...)
-    //   - Motivo badge (COTIZACIÓN / ENDOSO naranja / ANULACIÓN rojo / NO APLICA amarillo / SINIESTRO oscuro / ...)
-    //   - Campos: Fecha, Atendido por
+    // GESTIONES - LINEAL LIST
     // ========================
     function renderGestiones(gestiones) {
         const pane = document.getElementById('tab-gestiones');
         pane.innerHTML = '';
+        pane.classList.add('list-mode'); // Forzamos el layout list
         if (!gestiones || !gestiones.length) { pane.appendChild(emptyState('No hay gestiones registradas.')); return; }
 
         const hdr = document.createElement('p');
-        hdr.style.cssText = 'grid-column:1/-1;color:var(--white-70);font-size:.9rem;margin:0 0 4px;';
+        hdr.style.cssText = 'color:var(--white-70);font-size:.9rem;margin:0 0 10px;';
         hdr.textContent = `📁 ${gestiones.length} gestión${gestiones.length !== 1 ? 'es' : ''}`;
         pane.appendChild(hdr);
 
@@ -306,26 +344,62 @@ document.addEventListener('DOMContentLoaded', async () => {
             const motivo    = strVal(g['MOTIVOS DE LA CONSULTA']);
             const atendido  = strVal(g['ATENDIDO X']);
             const fecha     = strVal(g['FECHA DE CREACION']);
-            // El estado de la gestión viene como "NUEVA", "PROCESADA", etc.
             const estadoGestion = strVal(g['ES CLIENTE']) || '';
 
-            const card = document.createElement('div');
-            card.className = 'data-card';
-            card.innerHTML = `
-                <div class="card-header">
-                    <div>${idGestion ? `<span class="badge badge-purple" style="font-size:.7rem;margin-bottom:6px;display:inline-flex;gap:4px;">🪪 ${idGestion}</span>` : ''}</div>
-                    ${estadoGestion ? `<div class="badge-container">${makeBadge(estadoGestion, 'badge-gray')}</div>` : ''}
+            const row = document.createElement('div');
+            row.className = 'glass-list-item';
+            
+            // Render Compacto (Fila)
+            row.innerHTML = `
+                <div class="list-item-main">
+                    <p class="list-item-title">
+                        ${idGestion ? `<span class="badge badge-purple" style="font-size:.65rem;">🪪 ${idGestion}</span>` : ''} 
+                        Gestión General
+                    </p>
+                    <div class="list-item-meta">
+                        <span><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> ${formatDate(fecha)}</span>
+                        <span>👥 ${atendido || 'Agente IA'}</span>
+                    </div>
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;">
-                    ${tipo   ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Tipo:</span>${makeBadge(tipo)}</div>`   : ''}
-                    ${motivo ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Motivo:</span>${makeBadge(motivo)}</div>` : ''}
+                <div class="list-item-badges">
+                    ${tipo ? makeBadge(tipo) : ''}
+                    ${estadoGestion ? makeBadge(estadoGestion, 'badge-gray') : ''}
                 </div>
-                <div class="card-divider"></div>
-                <div class="card-body">
-                    <div class="card-row"><span class="row-label">Fecha</span><span class="row-val">${formatDateTime(fecha)}</span></div>
-                    <div class="card-row"><span class="row-label">Atendido por</span><span class="row-val">${atendido || 'AGENTE IA'}</span></div>
-                </div>`;
-            pane.appendChild(card);
+            `;
+
+            // Modal Detalles
+            row.addEventListener('click', () => {
+                const title = `🪪 Gestión ${idGestion || ''}`;
+                const body = `
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Fecha de Gestión</span>
+                        <span class="modal-detail-value">${formatDateTime(fecha)}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Status Principal</span>
+                        <span class="modal-detail-value">${estadoGestion ? makeBadge(estadoGestion, 'badge-gray') : '-'}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Clasificación</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Tipo de Atención</span>
+                        <span class="modal-detail-value">${tipo ? makeBadge(tipo) : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Motivos</span>
+                        <span class="modal-detail-value">${motivo ? makeBadge(motivo, 'badge-orange') : '-'}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Seguimiento</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Atendido por</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                    </div>
+                `;
+                openModal(title, body);
+            });
+
+            pane.appendChild(row);
         });
     }
 
@@ -341,15 +415,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     function renderAccidentes(accidentes) {
         const pane = document.getElementById('tab-accidentes');
         pane.innerHTML = '';
+        pane.classList.add('list-mode');
         if (!accidentes || !accidentes.length) { pane.appendChild(emptyState('No hay denuncias de accidente.')); return; }
 
         const hdr = document.createElement('p');
-        hdr.style.cssText = 'grid-column:1/-1;color:var(--white-70);font-size:.9rem;margin:0 0 4px;';
+        hdr.style.cssText = 'color:var(--white-70);font-size:.9rem;margin:0 0 10px;';
         hdr.textContent = `🚗 ${accidentes.length} denuncia${accidentes.length !== 1 ? 's' : ''} de accidente`;
         pane.appendChild(hdr);
 
         let accIdx = 0;
         accidentes.forEach(a => {
+            const numSiniestro = strVal(a['NUMERO DE SINIESTRO']);
             const tipo      = strVal(a['ATASCAMIENTO - CHOQUE -DAÑO - OTRO']) || strVal(a['TIPO DE ATENCIÓN']) || strVal(a['CLASIFICACIÓN']);
             const culpa     = strVal(a['CULPABILIDAD']);
             const tratam    = strVal(a['TRATAMIENTO']) || strVal(a['Tratamiento']);
@@ -370,42 +446,75 @@ document.addEventListener('DOMContentLoaded', async () => {
                 culpa.toUpperCase().includes('NO CULP') ? 'badge-green' :
                 culpa.toUpperCase().includes('TENGO')   ? 'badge-yellow' : 'badge-red';
 
-            const uid = `ia-acc-${accIdx++}`;
-            const card = document.createElement('div');
-            card.className = 'data-card';
-            card.style.borderTop = '3px solid var(--color-warning)';
-            card.innerHTML = `
-                <p style="font-size:.72rem;color:var(--white-50);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 6px;">Siniestro</p>
-                <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px;">
-                    <div style="display:flex;flex-direction:column;gap:2px;">
-                        <span style="font-size:.68rem;color:var(--white-50);">Tipo:</span>
-                        ${tipo ? makeBadge(tipo, tipoCls) : '-'}
+            const row = document.createElement('div');
+            row.className = 'glass-list-item';
+            
+            row.innerHTML = `
+                <div class="list-item-main">
+                    <p class="list-item-title">
+                        ${numSiniestro ? `<span class="badge badge-red" style="font-size:.65rem;">🚨 ${numSiniestro}</span>` : ''} 
+                        Denuncia de Accidente
+                    </p>
+                    <div class="list-item-meta">
+                        <span><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> ${formatDate(fecha)}</span>
+                        <span>👥 ${atendido || 'Agente IA'}</span>
                     </div>
-                    ${culpa ? `<div style="display:flex;flex-direction:column;gap:2px;">
-                        <span style="font-size:.68rem;color:var(--white-50);">Culpa:</span>
-                        ${makeBadge(culpa, culpaCls)}
-                    </div>` : ''}
                 </div>
-                ${iaText ? `
-                <details class="analyzer-details" id="${uid}">
-                    <summary class="analyzer-label">🤖 IA: <span class="analyzer-toggle-icon">▼</span></summary>
-                    <div class="analyzer-block">${iaText.replace(/\n/g, '<br>')}</div>
-                </details>` : ''}
-                ${(tratam || resoluc) ? `
-                <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
-                    ${tratam  ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Tratam:</span>${makeBadge(tratam, 'badge-yellow')}</div>` : ''}
-                    ${resoluc ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Resoluc:</span>${makeBadge(resoluc, 'badge-green')}</div>`  : ''}
-                </div>` : ''}
-                <div class="card-divider"></div>
-                <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:.78rem;color:var(--white-50);">
-                    ${patente   ? `<span>Patente: <strong style="color:var(--white)">${patente}</strong></span>`    : ''}
-                    ${vehiculo  ? `<span>Vehículo: <strong style="color:var(--white)">${vehiculo}</strong></span>`  : ''}
-                    ${cobertura ? `<span>Cobertura: <strong style="color:var(--white)">${cobertura}</strong></span>` : ''}
-                    ${fecha     ? `<span>Fecha: <strong style="color:var(--white)">${formatDateTime(fecha)}</strong></span>` : ''}
-                    ${atendido  ? `<span>Atendido por: <strong style="color:var(--white)">${atendido}</strong></span>` : ''}
-                    ${poliza    ? `<span>Póliza: <strong style="color:var(--white)">${strVal(poliza)}</strong></span>` : ''}
-                </div>`;
-            pane.appendChild(card);
+                <div class="list-item-badges">
+                    ${culpa ? makeBadge(culpa, culpaCls) : ''}
+                    ${resoluc ? makeBadge(resoluc, 'badge-green') : ''}
+                </div>
+            `;
+
+            row.addEventListener('click', () => {
+                const title = `🚨 Accidente ${numSiniestro || ''}`;
+                const body = `
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Fecha del Siniestro</span>
+                        <span class="modal-detail-value">${formatDateTime(fecha)}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Análisis de Caso</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Vehículo Involucrado</span>
+                        <span class="modal-detail-value">${vehiculo || '-'} ${patente ? `(${patente})` : ''}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Tipo de Choque</span>
+                        <span class="modal-detail-value">${tipo ? makeBadge(tipo, tipoCls) : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Culpabilidad Presunta</span>
+                        <span class="modal-detail-value">${culpa ? makeBadge(culpa, culpaCls) : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Tratamiento</span>
+                        <span class="modal-detail-value">${tratam ? makeBadge(tratam, 'badge-yellow') : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Resolución Final</span>
+                        <span class="modal-detail-value">${resoluc ? makeBadge(resoluc, 'badge-green') : 'Pendiente'}</span>
+                    </div>
+
+                    ${iaText ? `
+                    <h3 class="modal-section-title">Resumen Inteligencia Artificial</h3>
+                    <div class="analyzer-block" style="margin-top:0;">${iaText.replace(/\n/g, '<br>')}</div>
+                    ` : ''}
+                    
+                    <h3 class="modal-section-title">Seguimiento</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Asociado a Póliza</span>
+                        <span class="modal-detail-value">${strVal(poliza) || '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Atendido por</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                    </div>
+                `;
+                openModal(title, body);
+            });
+
+            pane.appendChild(row);
         });
     }
 
@@ -423,10 +532,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     function renderRoboOc(robos) {
         const pane = document.getElementById('tab-robo_oc');
         pane.innerHTML = '';
+        pane.classList.add('list-mode');
         if (!robos || !robos.length) { pane.appendChild(emptyState('No hay denuncias de Robo OC.')); return; }
 
         const hdr = document.createElement('p');
-        hdr.style.cssText = 'grid-column:1/-1;color:var(--white-70);font-size:.9rem;margin:0 0 4px;';
+        hdr.style.cssText = 'color:var(--white-70);font-size:.9rem;margin:0 0 10px;';
         hdr.textContent = `🛡️ ${robos.length} denuncia${robos.length !== 1 ? 's' : ''} de robo OC`;
         pane.appendChild(hdr);
 
@@ -450,32 +560,73 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const danyos = Array.isArray(danyoRaw) ? danyoRaw : (danyoRaw ? [danyoRaw] : []);
 
-            const card = document.createElement('div');
-            card.className = 'data-card';
-            card.style.borderTop = '3px solid var(--color-warning)';
-            card.innerHTML = `
-                <p style="font-size:.72rem;color:var(--white-50);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:0 0 2px;">Siniestro</p>
-                ${nSiniestro ? `<strong style="font-size:1.1rem;color:var(--white);display:block;margin-bottom:6px;">${nSiniestro}</strong>` : ''}
-                <div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0;">
-                    ${danyos.length ? `<div style="display:flex;flex-direction:column;gap:2px;">
-                        <span style="font-size:.68rem;color:var(--white-50);">Daño:</span>
-                        <div style="display:flex;gap:4px;flex-wrap:wrap;">${danyos.map(d => makeBadge(d, 'badge-gray')).join('')}</div>
-                    </div>` : ''}
-                    ${alcance ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Alcance:</span>${makeBadge(alcance, 'badge-blue')}</div>` : ''}
-                    ${tratam  ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Tratam:</span>${makeBadge(tratam, 'badge-yellow')}</div>` : ''}
-                    ${orden   ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Orden:</span>${makeBadge(orden, 'badge-green')}</div>` : ''}
-                    ${verif   ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Verif:</span>${makeBadge(verif, 'badge-orange')}</div>` : ''}
+            const row = document.createElement('div');
+            row.className = 'glass-list-item';
+            
+            row.innerHTML = `
+                <div class="list-item-main">
+                    <p class="list-item-title">
+                        ${nSiniestro ? `<span class="badge badge-blue" style="font-size:.65rem;">🔍 ${nSiniestro}</span>` : ''} 
+                        Robo Parcial (OC)
+                    </p>
+                    <div class="list-item-meta">
+                        <span><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> ${formatDate(fecha)}</span>
+                        <span>👥 ${atendido || 'Agente IA'}</span>
+                    </div>
                 </div>
-                <div class="card-divider"></div>
-                <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:.78rem;color:var(--white-50);">
-                    ${patente   ? `<span>Patente: <strong style="color:var(--white)">${patente}</strong></span>`    : ''}
-                    ${vehiculo  ? `<span>Vehículo: <strong style="color:var(--white)">${vehiculo}</strong></span>`  : ''}
-                    ${cobertura ? `<span>Cobertura: <strong style="color:var(--white)">${cobertura}</strong></span>` : ''}
-                    ${fecha     ? `<span>Fecha: <strong style="color:var(--white)">${formatDateTime(fecha)}</strong></span>` : ''}
-                    ${atendido  ? `<span>Atendido por: <strong style="color:var(--white)">${atendido}</strong></span>` : ''}
-                    ${poliza    ? `<span>Póliza: <strong style="color:var(--white)">${strVal(poliza)}</strong></span>` : ''}
-                </div>`;
-            pane.appendChild(card);
+                <div class="list-item-badges">
+                    ${tratam ? makeBadge(tratam, 'badge-yellow') : ''}
+                    ${alcance ? makeBadge(alcance, 'badge-blue') : ''}
+                </div>
+            `;
+
+            row.addEventListener('click', () => {
+                const title = `🔍 Robo OC ${nSiniestro || ''}`;
+                const body = `
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Fecha del Siniestro</span>
+                        <span class="modal-detail-value">${formatDateTime(fecha)}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Detalles del Hecho</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Vehículo</span>
+                        <span class="modal-detail-value">${vehiculo || '-'} ${patente ? `(${patente})` : ''}</span>
+                    </div>
+                    ${danyos.length ? `
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Elementos Afectados</span>
+                        <span class="modal-detail-value">${danyos.map(d => makeBadge(d, 'badge-gray')).join(' ')}</span>
+                    </div>` : ''}
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Análisis de Cobertura</span>
+                        <span class="modal-detail-value">${alcance ? makeBadge(alcance, 'badge-blue') : '-'}</span>
+                    </div>
+
+                    <h3 class="modal-section-title">Progreso de Gestión</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Estado</span>
+                        <span class="modal-detail-value">${tratam ? makeBadge(tratam, 'badge-yellow') : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Orden Pedida a Cía</span>
+                        <span class="modal-detail-value">${orden ? makeBadge(orden, 'badge-green') : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Verificación</span>
+                        <span class="modal-detail-value">${verif ? makeBadge(verif, 'badge-orange') : '-'}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Seguimiento</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Atendido por</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                    </div>
+                `;
+                openModal(title, body);
+            });
+
+            pane.appendChild(row);
         });
     }
 
@@ -492,15 +643,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     function renderRoboIncendio(robos) {
         const pane = document.getElementById('tab-robo_incendio');
         pane.innerHTML = '';
+        pane.classList.add('list-mode');
         if (!robos || !robos.length) { pane.appendChild(emptyState('No hay denuncias de Robo/Incendio.')); return; }
 
         const hdr = document.createElement('p');
-        hdr.style.cssText = 'grid-column:1/-1;color:var(--white-70);font-size:.9rem;margin:0 0 4px;';
+        hdr.style.cssText = 'color:var(--white-70);font-size:.9rem;margin:0 0 10px;';
         hdr.textContent = `🔥 ${robos.length} denuncia${robos.length !== 1 ? 's' : ''} de robo/incendio`;
         pane.appendChild(hdr);
 
         robos.forEach(r => {
             const idReg    = strVal(r['ID_UNICO_GESTION']);
+            const nSiniestro = strVal(r['NUMERO DE SINIESTRO']); // Usually doesn't exist here but just in case
             const tipo     = strVal(r['TIPO DE ROBO / INCENDIO ']) || strVal(r['CLASIFICACIÓN DEL SINIESTRO']) || strVal(r['TIPO DE ATENCIÓN']);
             const alcance  = strVal(r['ALCANCE DE COBERTURA']);
             const tratam   = strVal(r['Tratamiento']) || strVal(r['TIPO DE ATENCIÓN']) || strVal(r['TRATAMIENTO']);
@@ -518,26 +671,68 @@ document.addEventListener('DOMContentLoaded', async () => {
                 else if (tu.includes('INCENDIO PARCIAL')) tipoCls = 'badge-green';
             }
 
-            const card = document.createElement('div');
-            card.className = 'data-card';
-            card.style.borderTop = '3px solid var(--color-employee)';
-            card.innerHTML = `
-                <div class="card-header">
-                    <div>${idReg ? `<span class="badge badge-purple" style="font-size:.7rem;display:inline-flex;gap:4px;">🪪 ${idReg}</span>` : ''}</div>
-                    ${estado ? `<div class="badge-container">${makeBadge(estado)}</div>` : ''}
+            const row = document.createElement('div');
+            row.className = 'glass-list-item';
+            
+            row.innerHTML = `
+                <div class="list-item-main">
+                    <p class="list-item-title">
+                        ${idReg ? `<span class="badge badge-orange" style="font-size:.65rem;">🔥 ${idReg}</span>` : ''} 
+                        Robo Total / Incendio
+                    </p>
+                    <div class="list-item-meta">
+                        <span><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> ${formatDate(fecha)}</span>
+                        <span>👥 ${atendido || 'Agente IA'}</span>
+                    </div>
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0;">
-                    ${tipo    ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Tipo:</span>${makeBadge(tipo, tipoCls)}</div>` : ''}
-                    ${alcance ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Alcance:</span>${makeBadge(alcance, 'badge-blue')}</div>` : ''}
-                    ${tratam  ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Tratam:</span>${makeBadge(tratam, 'badge-green')}</div>` : ''}
-                    ${resoluc ? `<div style="display:flex;flex-direction:column;gap:2px;"><span style="font-size:.68rem;color:var(--white-50);">Resoluc:</span>${makeBadge(resoluc, 'badge-orange')}</div>` : ''}
+                <div class="list-item-badges">
+                    ${tipo ? makeBadge(tipo, tipoCls) : ''}
+                    ${resoluc ? makeBadge(resoluc, 'badge-orange') : ''}
                 </div>
-                <div class="card-divider"></div>
-                <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px;font-size:.78rem;color:var(--white-50);">
-                    ${fecha    ? `<span>Fecha: <strong style="color:var(--white)">${formatDateTime(fecha)}</strong></span>` : ''}
-                    ${atendido ? `<span>Atendido por: <strong style="color:var(--white)">${atendido}</strong></span>` : ''}
-                </div>`;
-            pane.appendChild(card);
+            `;
+
+            row.addEventListener('click', () => {
+                const title = `🔥 Robo/Incendio ${idReg || ''}`;
+                const body = `
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Fecha del Siniestro</span>
+                        <span class="modal-detail-value">${formatDateTime(fecha)}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Status Principal</span>
+                        <span class="modal-detail-value">${estado ? makeBadge(estado, 'badge-gray') : '-'}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Detalles del Hecho</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Tipo de Siniestro</span>
+                        <span class="modal-detail-value">${tipo ? makeBadge(tipo, tipoCls) : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Análisis de Cobertura</span>
+                        <span class="modal-detail-value">${alcance ? makeBadge(alcance, 'badge-blue') : '-'}</span>
+                    </div>
+
+                    <h3 class="modal-section-title">Progreso de Gestión</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Tratamiento</span>
+                        <span class="modal-detail-value">${tratam ? makeBadge(tratam, 'badge-green') : '-'}</span>
+                    </div>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Resolución</span>
+                        <span class="modal-detail-value">${resoluc ? makeBadge(resoluc, 'badge-orange') : '-'}</span>
+                    </div>
+                    
+                    <h3 class="modal-section-title">Seguimiento</h3>
+                    <div class="modal-detail-row">
+                        <span class="modal-detail-label">Atendido por</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                    </div>
+                `;
+                openModal(title, body);
+            });
+
+            pane.appendChild(row);
         });
     }
 });

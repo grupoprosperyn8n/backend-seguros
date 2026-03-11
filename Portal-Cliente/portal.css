@@ -479,4 +479,258 @@ details[open] .analyzer-toggle-icon { transform: rotate(180deg); }
 @media (max-width: 480px) {
   .dashboard-layout { padding: 12px; gap: 12px; }
   .stat-badge { flex: 1 1 calc(50% - 10px); }
+  
+  .dh-right { flex-direction: column; align-items: stretch; gap: 12px; }
+  .quick-actions { flex-direction: column; width: 100%; border-right: none; padding-right: 0; padding-bottom: 12px; border-bottom: 1px solid var(--glass-border); }
+}
+
+/* ==============================
+   QUICK ACTIONS (Header)
+   ============================== */
+.quick-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-right: 16px;
+  border-right: 1px solid var(--glass-border);
+}
+.action-btn-small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--white);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: all 0.2s var(--ease-out);
+}
+.action-btn-small:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.2);
+}
+
+/* ==============================
+   LIST VIEW (Gestiones, Siniestros)
+   ============================== */
+.glass-list-item {
+  background: linear-gradient(145deg, rgba(30,45,65,0.6), rgba(15,25,45,0.7));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 10px; /* Space between rows since we changed grid to flat list */
+}
+.glass-list-item:hover {
+  transform: translateY(-2px) scale(1.002);
+  background: linear-gradient(145deg, rgba(40,65,95,0.7), rgba(20,35,60,0.8));
+  border-color: rgba(10,132,255,0.3);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+}
+.glass-list-item::after {
+  content: '→';
+  position: absolute;
+  right: 18px;
+  color: var(--primary-light);
+  font-size: 1.2rem;
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: all 0.2s var(--ease-out);
+}
+.glass-list-item:hover::after {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.list-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.list-item-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--white);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.list-item-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 0.8rem;
+  color: var(--white-50);
+  flex-wrap: wrap;
+}
+.list-item-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.list-item-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-right: 24px; /* Space for the arrow */
+}
+
+/* Contenedor plano en lugar de grid para las tabs tipo lista */
+.tab-pane.list-mode {
+  display: none;
+  flex-direction: column;
+  gap: 0; /* Margin handled by items */
+}
+.tab-pane.list-mode.active {
+  display: flex;
+}
+
+/* ==============================
+   MODAL DE DETALLES
+   ============================== */
+.portal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease-out);
+  padding: 20px;
+}
+.portal-modal-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.portal-modal {
+  background: linear-gradient(145deg, rgba(20,30,45,0.95), rgba(10,15,25,0.98));
+  border: 1px solid rgba(255,255,255,0.15);
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 0 1px inset rgba(255,255,255,0.05);
+  border-radius: var(--r-xl);
+  width: 100%;
+  max-width: 550px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(20px) scale(0.95);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.portal-modal-overlay.active .portal-modal {
+  transform: translateY(0) scale(1);
+}
+
+.portal-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background: rgba(255,255,255,0.03);
+}
+.portal-modal-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.portal-modal-close {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: var(--white);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.portal-modal-close:hover {
+  background: rgba(255,69,58,0.8);
+}
+
+.portal-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(255,255,255,0.05);
+}
+.modal-detail-row:last-child {
+  border-bottom: none;
+}
+.modal-detail-label {
+  color: var(--white-50);
+  font-size: 0.82rem;
+}
+.modal-detail-value {
+  color: var(--white);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: right;
+  max-width: 65%;
+}
+
+.modal-section-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary-light);
+  margin: 10px 0 4px;
+  font-weight: 700;
+}
+
+/* ==============================
+   DOCUMENTACIÓN (Botón PDF)
+   ============================== */
+.btn-download-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(10,132,255,0.15);
+  border: 1px solid rgba(10,132,255,0.3);
+  color: var(--primary-light);
+  border-radius: var(--r-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  margin-top: 10px;
+  transition: all 0.2s var(--ease-out);
+  width: fit-content;
+}
+.btn-download-doc:hover {
+  background: rgba(10,132,255,0.3);
+  color: var(--white);
+  transform: translateY(-1px);
 }

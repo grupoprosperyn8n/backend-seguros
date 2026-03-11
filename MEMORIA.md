@@ -133,4 +133,12 @@ Utilizar siempre estos datos para verificar flujos de extremo a extremo:
 - ✅ **Enlaces Actualizados:** Redireccionamiento correcto del enlace de registro de la app al nuevo Portal SaaS (`portal-cliente-seguros.surge.sh/crear-clave.html`).
 - 🟢 **Estado actual:** Interfaz 100% premium y funcional desplegada en [seguros-app-linktree.surge.sh](https://seguros-app-linktree.surge.sh/) y [portal-cliente-seguros.surge.sh](https://portal-cliente-seguros.surge.sh/).
 
-*Última actualización: 2026-03-10 20:40*
+### [2026-03-10] Rediseño Portal Cliente: Listas Glassmorphism & Flujos
+- ✅ **UI/UX Portal:** Migración de diseño de tarjetas (Grid) a listas (List View) para `Gestiones Generales`, `Accidentes`, `Robo OC` y `Robo/Incendio`. 
+- ✅ **Interactividad Portal:** Implementación de Modales globales de detalle (`glass-modal`) al hacer clic en ítems de las listas, permitiendo visualizar información ampliada de manera limpia.
+- ✅ **Gestión Documental:** Función de Descarga Integrada. Ahora los usuarios pueden descargar PDFs directamente de la tarjeta de `Pólizas` (leyendo el campo `DOCUMENTACION` de Airtable).
+- ✅ **Accesos Rápidos (Quick Actions):** Integración de botones de acción rápida en el header del portal (Denunciar Siniestro, Contactar por WhatsApp, Agente IA).
+- ✅ **Integración Linktree:** El botón `Denunciar Siniestro` en el portal redirecciona al Linktree inyectando un parámetro URL (`?modal=siniestro`) para forzar la auto-apertura del modal correspondiente.
+- 🟢 **Estado actual:** Funcionalidades de experiencia de usuario premium unificadas en la plataforma SaaS.
+
+*Última actualización: 2026-03-10 21:45*
