@@ -1704,9 +1704,20 @@ async def get_sucursales():
                 elif isinstance(google_map_field, str):
                     google_map_url = google_map_field
 
+                import re
+                def clean_name(name):
+                    if not name: return ""
+                    return re.sub(r'\s*\([^)]*\)\s*$', '', str(name)).strip()
+
+                raw_name = get_val(fields, "NOMBRE_OFICINA_LIMPIO_WEB")
+                if not raw_name:
+                    raw_name = fields.get("OFICINAS", "")
+                
+                final_name = clean_name(raw_name)
+
                 sucursales.append(
                     {
-                        "nombre": get_val(fields, "NOMBRE_OFICINA_LIMPIO_WEB", fields.get("OFICINAS", "")),
+                        "nombre": final_name,
                         "direccion": get_val(fields, "DOMICILIO"),
                         "localidad": get_val(fields, "LOCALIDAD DE OFICINAS"),
                         "horario": get_val(fields, "HORARIO"),
