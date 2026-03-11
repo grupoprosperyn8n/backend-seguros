@@ -506,10 +506,19 @@ details[open] .analyzer-toggle-icon { transform: rotate(180deg); }
   text-decoration: none;
   border: 1px solid transparent;
   transition: all 0.2s var(--ease-out);
+  white-space: nowrap;
 }
 .action-btn-small:hover {
   transform: translateY(-2px);
   filter: brightness(1.2);
+}
+
+.action-btn-danger {
+  background: linear-gradient(135deg, #ff453a, #ff6961);
+  box-shadow: 0 4px 12px rgba(255, 69, 58, 0.4);
+}
+.action-btn-danger:hover {
+  box-shadow: 0 6px 16px rgba(255, 69, 58, 0.6);
 }
 
 /* ==============================
