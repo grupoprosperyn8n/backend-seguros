@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // 2. Constants & DOM
+    // Entorno Local de Alta Disponibilidad
     const BACKEND_API = 'https://web-production-2584d.up.railway.app/api/portal/user-data';
     
     const ui = {
@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Renderizar todas las secciones
         renderPerfil(data.perfil);
         renderPolizas(data.polizas);
-        renderGestiones(data.gestiones);
+        renderGestiones(data.gestiones, data.polizas);
         renderAccidentes(data.accidentes);
         renderRoboOc(data.robo_oc);
         renderRoboIncendio(data.robo_incendio);
@@ -132,6 +132,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         if (Array.isArray(v)) return v.map(clean).filter(Boolean).join(', ');
         return clean(v);
+    }
+
+    function resolvedAtendido(rec) {
+        return (
+            strVal(rec?.['ATENDIDO X']) ||
+            strVal(rec?.['ATENDIDO X (from CLIENTES)']) ||
+            strVal(rec?.['Atendido por']) ||
+            strVal(rec?.['ATENDIDO POR']) ||
+            ''
+        );
+    }
+
+    function resolvedOficina(rec) {
+        return (
+            strVal(rec?.['OFICINAS']) ||
+            strVal(rec?.['OFICINA']) ||
+            strVal(rec?.['Oficina']) ||
+            strVal(rec?.['OFICINAS (from CLIENTES)']) ||
+            ''
+        );
     }
 
     // Clase CSS de badge según texto — mapeo exacto al sistema del backend
@@ -327,10 +347,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ========================
     // GESTIONES - LINEAL LIST
     // ========================
-    function renderGestiones(gestiones) {
+    function renderGestiones(gestiones, allPolizas = []) {
         const pane = document.getElementById('tab-gestiones');
         pane.innerHTML = '';
-        pane.classList.add('list-mode'); // Forzamos el layout list
+        pane.classList.add('list-mode');
         if (!gestiones || !gestiones.length) { pane.appendChild(emptyState('No hay gestiones registradas.')); return; }
 
         const hdr = document.createElement('p');
@@ -339,61 +359,97 @@ document.addEventListener('DOMContentLoaded', async () => {
         pane.appendChild(hdr);
 
         gestiones.forEach(g => {
-            const idGestion = strVal(g['ID_UNICO_GESTION']);
-            const tipo      = strVal(g['TIPO DE ATENCIÓN']);
-            const motivo    = strVal(g['MOTIVOS DE LA CONSULTA']);
-            const atendido  = strVal(g['ATENDIDO X']);
-            const fecha     = strVal(g['FECHA DE CREACION']);
-            const estadoGestion = strVal(g['ES CLIENTE']) || '';
+            // 1. Vincular Póliza para obtener datos faltantes (Lookup/Rollup Cross-table)
+            const idsPoliza = g['POLIZAS'] || [];
+            const polId = Array.isArray(idsPoliza) ? idsPoliza[0] : idsPoliza;
+            
+            // Buscar la póliza en el set de datos ya cargado
+            const polRecord = allPolizas.find(p => p.RECORD_ID === polId) || {};
+            
+            // Extracción de datos con fallback agresivo
+            const idGestion   = strVal(g['ID_UNICO_GESTION']);
+            const fechaCarga  = strVal(g['FECHA DE CREACION']);
+            const motivo      = strVal(g['MOTIVOS DE LA CONSULTA']);
+            const atendido    = resolvedAtendido(g) || '-';
+            
+            // Datos del Seguro (Buscando en Gestion y luego en Poliza)
+            const nPoliza     = strVal(g['N° DE POLIZA']) || strVal(polRecord['N° DE POLIZA']) || strVal(polRecord['ETIQUETA_POLIZA']) || '-';
+            
+            // Fallback para Patente usando el nombre largo de Airtable si el corto falla
+            const patente     = strVal(polRecord['PATENTE DEL VEHICULO']) || 
+                                strVal(polRecord['PATENTE DEL VEHICULO (de GESTIÓN GENERAL) (from CLIENTES)']) || 
+                                strVal(g['PATENTE DEL VEHICULO']) || '-';
+            
+            const compania    = strVal(polRecord['COMPANIA_RESOLVED']) || strVal(polRecord['NOMBRE (from COMPANIA LINK)']) || '-';
+            const producto    = strVal(polRecord['PRODUCTO_RESOLVED']) || strVal(polRecord['NOMBRE PRODUCTO']) || '-';
+            
+            const oficina     = resolvedOficina(g) || '-';
+            const detallarOtr = strVal(g['DETALLAR OTROS']) || '-';
+            const formaPago   = strVal(g['FORMA DE PAGOS']) || '-';
+            const vida        = strVal(g['VIDA']) || 'NO';
+            const auxilio     = strVal(g['AUXILIOS']) || 'NO';
+            const impPoliza   = strVal(g['IMPORTE']) ? `$${strVal(g['IMPORTE'])}` : '-';
+            const impVida     = strVal(g['IMPORTE VIDA']) ? `$${strVal(g['IMPORTE VIDA'])}` : '-';
+            const impAux      = strVal(g['IMPORTE AUX 24']) ? `$${strVal(g['IMPORTE AUX 24'])}` : '-';
 
             const row = document.createElement('div');
             row.className = 'glass-list-item';
             
-            // Render Compacto (Fila)
+            // LISTA: Fecha de Carga, Motivo, Producto, Patente (Estructura Fija)
             row.innerHTML = `
                 <div class="list-item-main">
-                    <p class="list-item-title">
+                    <p class="list-item-title" style="display:flex; align-items:center; gap:8px;">
                         ${idGestion ? `<span class="badge badge-purple" style="font-size:.65rem;">🪪 ${idGestion}</span>` : ''} 
-                        Gestión General
+                        <span style="color:var(--white-70); font-weight:400;">Motivo:</span> <strong>${motivo || '-'}</strong>
                     </p>
-                    <div class="list-item-meta">
-                        <span><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg> ${formatDate(fecha)}</span>
-                        <span>👥 ${atendido || 'Agente IA'}</span>
+                    <div class="list-item-meta" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:12px; margin-top:6px;">
+                        <span>📅 <small style="color:var(--white-50);">Carga:</small> ${formatDate(fechaCarga)}</span>
+                        <span>🚗 <small style="color:var(--white-50);">Patente:</small> ${patente}</span>
+                        <span>📦 <small style="color:var(--white-50);">Producto:</small> ${producto}</span>
                     </div>
-                </div>
-                <div class="list-item-badges">
-                    ${tipo ? makeBadge(tipo) : ''}
-                    ${estadoGestion ? makeBadge(estadoGestion, 'badge-gray') : ''}
                 </div>
             `;
 
-            // Modal Detalles
+            // MODAL: Estructura Fija con todos los campos
             row.addEventListener('click', () => {
                 const title = `🪪 Gestión ${idGestion || ''}`;
                 const body = `
-                    <div class="modal-detail-row">
-                        <span class="modal-detail-label">Fecha de Gestión</span>
-                        <span class="modal-detail-value">${formatDateTime(fecha)}</span>
-                    </div>
-                    <div class="modal-detail-row">
-                        <span class="modal-detail-label">Status Principal</span>
-                        <span class="modal-detail-value">${estadoGestion ? makeBadge(estadoGestion, 'badge-gray') : '-'}</span>
-                    </div>
-                    
-                    <h3 class="modal-section-title">Clasificación</h3>
-                    <div class="modal-detail-row">
-                        <span class="modal-detail-label">Tipo de Atención</span>
-                        <span class="modal-detail-value">${tipo ? makeBadge(tipo) : '-'}</span>
-                    </div>
-                    <div class="modal-detail-row">
-                        <span class="modal-detail-label">Motivos</span>
-                        <span class="modal-detail-value">${motivo ? makeBadge(motivo, 'badge-orange') : '-'}</span>
-                    </div>
-                    
-                    <h3 class="modal-section-title">Seguimiento</h3>
-                    <div class="modal-detail-row">
-                        <span class="modal-detail-label">Atendido por</span>
-                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                    <div class="modal-fixed-grid">
+                        <section class="modal-fixed-section">
+                            <h3 class="modal-section-title">Información de Gestión</h3>
+                            <div class="modal-detail-row"><span class="modal-detail-label">ID Gestión</span><span class="modal-detail-value">${idGestion || '-'}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Fecha de Carga</span><span class="modal-detail-value">${formatDateTime(fechaCarga)}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Oficina</span><span class="modal-detail-value">${oficina}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Atendido por</span><span class="modal-detail-value" style="color:var(--primary-light);">${atendido || '-'}</span></div>
+                        </section>
+
+                        <section class="modal-fixed-section">
+                            <h3 class="modal-section-title">Datos del Seguro</h3>
+                            <div class="modal-detail-row"><span class="modal-detail-label">N° de Póliza</span><span class="modal-detail-value">${nPoliza}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Patente</span><span class="modal-detail-value">${patente}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Compañía</span><span class="modal-detail-value">${compania}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Tipo de Producto</span><span class="modal-detail-value">${makeBadge(producto, 'badge-blue')}</span></div>
+                        </section>
+
+                        <section class="modal-fixed-section">
+                            <h3 class="modal-section-title">Consulta</h3>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Motivo de Consulta</span><span class="modal-detail-value">${makeBadge(motivo, 'badge-orange')}</span></div>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Detallar Otros</span><span class="modal-detail-value" style="font-style:italic; color:var(--white-70);">${detallarOtr}</span></div>
+                        </section>
+
+                        <section class="modal-fixed-section">
+                            <h3 class="modal-section-title">Información Financiera</h3>
+                            <div class="modal-detail-row"><span class="modal-detail-label">Forma de Pago</span><span class="modal-detail-value">${formaPago}</span></div>
+                            <div class="modal-grid-3">
+                                <div class="mini-card"><small>Importe Póliza</small><strong>${impPoliza}</strong></div>
+                                <div class="mini-card"><small>Importe Vida</small><strong>${impVida}</strong></div>
+                                <div class="mini-card"><small>Importe Auxilio</small><strong>${impAux}</strong></div>
+                            </div>
+                            <div class="modal-grid-2" style="margin-top:10px;">
+                                <div class="mini-badge-row"><span>Vida</span> ${makeBadge(vida, vida.toUpperCase().includes('SI') ? 'badge-green' : 'badge-gray')}</div>
+                                <div class="mini-badge-row"><span>Auxilio</span> ${makeBadge(auxilio, auxilio.toUpperCase().includes('SI') ? 'badge-green' : 'badge-gray')}</div>
+                            </div>
+                        </section>
                     </div>
                 `;
                 openModal(title, body);
@@ -436,7 +492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const vehiculo  = [marca, modelo].filter(Boolean).join(' ');
             const cobertura = strVal(a['COBERTURA']);
             const fecha     = strVal(a['FECHA DE CREACION']);
-            const atendido  = strVal(a['ATENDIDO X']);
+            const atendido  = resolvedAtendido(a);
             const poliza    = strVal(a['N° DE POLIZA']);
             const iaText    = cleanIAText(a['CULPABILIDAD IA']);
 
@@ -508,7 +564,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     </div>
                     <div class="modal-detail-row">
                         <span class="modal-detail-label">Atendido por</span>
-                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || '-'}</span>
                     </div>
                 `;
                 openModal(title, body);
@@ -555,7 +611,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const vehiculo   = [marca, modelo].filter(Boolean).join(' ');
             const cobertura  = strVal(r['COBERTURA']);
             const fecha      = strVal(r['FECHA DE CREACION']);
-            const atendido   = strVal(r['ATENDIDO X']);
+            const atendido   = resolvedAtendido(r);
             const poliza     = strVal(r['N° DE POLIZA']);
 
             const danyos = Array.isArray(danyoRaw) ? danyoRaw : (danyoRaw ? [danyoRaw] : []);
@@ -620,7 +676,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <h3 class="modal-section-title">Seguimiento</h3>
                     <div class="modal-detail-row">
                         <span class="modal-detail-label">Atendido por</span>
-                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || '-'}</span>
                     </div>
                 `;
                 openModal(title, body);
@@ -659,7 +715,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const tratam   = strVal(r['Tratamiento']) || strVal(r['TIPO DE ATENCIÓN']) || strVal(r['TRATAMIENTO']);
             const resoluc  = strVal(r['TIPO DE RESOLUCION']) || strVal(r['Elegir Resolucion ']);
             const fecha    = strVal(r['FECHA DE CREACION']);
-            const atendido = strVal(r['ATENDIDO X']);
+            const atendido = resolvedAtendido(r);
             const estado   = strVal(r['ES CLIENTE']);
 
             // Color tipo exacto
@@ -726,7 +782,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <h3 class="modal-section-title">Seguimiento</h3>
                     <div class="modal-detail-row">
                         <span class="modal-detail-label">Atendido por</span>
-                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || 'Agente Inteligente'}</span>
+                        <span class="modal-detail-value" style="color:var(--primary-light);">${atendido || '-'}</span>
                     </div>
                 `;
                 openModal(title, body);

@@ -22,18 +22,23 @@ load_dotenv()
 app = FastAPI()
 # Force Deploy v2
 
-# Configuración CORS
+# Configuración CORS Universal (Persistencia Titán & Nube)
+import sys
+
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "_SISTEMA_LOCAL_"))
+)
+try:
+    from cors_config import UNIVERSAL_ALLOWED_ORIGINS, DYNAMIC_ORIGIN_FILTER_REGEX
+except ImportError:
+    # Fallback de seguridad
+    UNIVERSAL_ALLOWED_ORIGINS = ["*"]
+    DYNAMIC_ORIGIN_FILTER_REGEX = r"https?://(.*localhost(:\d+)?|.*\.surge\.sh).*"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "https://seguros_linktree.surge.sh",
-        "https://seguros-app-linktree.surge.sh",
-        "https://login-agentico-1770227340.surge.sh",
-        "https://registro-agentico-1770227370.surge.sh",
-        "https://portal-cliente-seguros.surge.sh",
-    ],
+    allow_origins=UNIVERSAL_ALLOWED_ORIGINS,
+    allow_origin_regex=DYNAMIC_ORIGIN_FILTER_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
@@ -109,9 +114,32 @@ class EstadoWeb:
 
 
 # Inicializar Tablas
-def get_table(table_name):
+TABLE_MAPPING = {
+    "CLIENTES": os.getenv("TABLE_CLIENTES", "tblVAcMxNTLYXbLfT"),
+    "POLIZAS": os.getenv("TABLE_POLIZAS", "tblEpvdJAQCA7wUe9"),
+    "GESTIÓN GENERAL": os.getenv("TABLE_GESTION_GENERAL", "tblA4AV8Lp7OvaUzI"),
+    "OFICINAS": os.getenv("TABLE_OFICINAS", "tblDLIvG4bnW7UUMi"),
+    "ASESORIA_ONLINE": os.getenv("TABLE_ASESORIA_ONLINE", "ASESORIA ONLINE"),
+    "CALIFICACIONES": os.getenv("TABLE_CALIFICACIONES", "CALIFICACIONES"),
+    "FAQ": os.getenv("TABLE_FAQ", "FAQ"),
+    "QUIENES_SOMOS": os.getenv("TABLE_QUIENES_SOMOS", "QUIENES_SOMOS"),
+    "CONFIG_FORMULARIOS": os.getenv("TABLE_CONFIG_FORMULARIOS", "CONFIG_FORMULARIOS"),
+    "CONFIG_CAMPOS": os.getenv("TABLE_CONFIG_CAMPOS", "CONFIG_CAMPOS"),
+    "EMPLEADOS": os.getenv("TABLE_EMPLEADOS", "EMPLEADOS"),
+    "COMPANIA": os.getenv("TABLE_COMPANIA", "COMPANIA"),
+    "PRODUCTOS": os.getenv("TABLE_PRODUCTOS", "PRODUCTOS"),
+    "DENUNCIA DE ACCIDENTE": os.getenv("TABLE_ACCIDENTES", "DENUNCIA DE ACCIDENTE"),
+    "DENUNCIA ROBO OC": os.getenv("TABLE_ROBO_OC", "DENUNCIA ROBO OC"),
+    "DENUNCIA ROBO / INCENDIO": os.getenv(
+        "TABLE_ROBO_INCENDIO", "DENUNCIA ROBO / INCENDIO"
+    ),
+}
+
+
+def get_table(table_name_key):
     if not API_KEY or not BASE_ID:
         return None
+    table_name = TABLE_MAPPING.get(table_name_key, table_name_key)
     return Table(API_KEY, BASE_ID, table_name)
 
 
@@ -277,6 +305,11 @@ def parse_poliza_block(bloque_texto: str) -> list:
 @app.get("/")
 def read_root():
     return {"status": "online", "service": "Linktree Backend Python"}
+
+
+@app.get("/api/version")
+def api_version():
+    return {"v": "PRODUCCION-ROBUSTA-V3"}
 
 
 @app.get("/api/validar-cliente")
@@ -492,42 +525,239 @@ async def get_portal_user_data(dni: str):
         ),
     }
 
-    # 4. RESOLUCIÓN DE EMPLEADOS (Reemplazar IDs por nombres)
+    # 4. RESOLUCIÓN DE LOOKUPS (Mapeo de IDs a Nombres)
     try:
-        table_emp = get_table("EMPLEADOS")
-        if table_emp:
-            emp_recs = table_emp.all(fields=["NOMBRE Y APELLIDO"])
-            emp_map = {r["id"]: r["fields"].get("NOMBRE Y APELLIDO", "Sin Nombre") for r in emp_recs}
-            
-            def resolve_emp(record_list):
-                for rec in record_list:
-                    atendido = rec.get("ATENDIDO X")
-                    if not atendido:
-                        rec["ATENDIDO X"] = "AGENTE IA"
-                        continue
-                        
-                    if isinstance(atendido, list):
-                        # Caso Airtable: List (Linked Record o Lookup)
-                        resolved_names = []
-                        for val in atendido:
-                            if isinstance(val, str) and val.startswith("rec"):
-                                resolved_names.append(emp_map.get(val, val))
-                            else:
-                                resolved_names.append(str(val))
-                        rec["ATENDIDO X"] = ", ".join(resolved_names) or "AGENTE IA"
-                    elif isinstance(atendido, str):
-                        # Caso poco común: Single string (ID o ya el nombre)
-                        if atendido.startswith("rec"):
-                            rec["ATENDIDO X"] = emp_map.get(atendido, atendido)
-                        else:
-                            rec["ATENDIDO X"] = atendido
-            
-            resolve_emp(data["gestiones"])
-            resolve_emp(data["accidentes"])
-            resolve_emp(data["robo_oc"])
-            resolve_emp(data["robo_incendio"])
+
+        def _is_airtable_id(value):
+            return isinstance(value, str) and value.startswith("rec")
+
+        def _normalize_text(value):
+            if value is None:
+                return ""
+            if isinstance(value, list):
+                parts = []
+                for item in value:
+                    txt = _normalize_text(item)
+                    if txt:
+                        parts.append(txt)
+                return ", ".join(parts)
+            if isinstance(value, dict):
+                for key in ("name", "label", "value", "text"):
+                    txt = _normalize_text(value.get(key))
+                    if txt:
+                        return txt
+                return ""
+            return str(value).strip()
+
+        def _looks_human_text(text):
+            if not text or _is_airtable_id(text):
+                return False
+            return any(ch.isalpha() for ch in text)
+
+        def _pick_display_name(fields, preferred_keys):
+            for key in preferred_keys:
+                txt = _normalize_text(fields.get(key))
+                if _looks_human_text(txt):
+                    return txt
+
+            for _, raw in fields.items():
+                txt = _normalize_text(raw)
+                if _looks_human_text(txt):
+                    return txt
+
+            return ""
+
+        def _build_name_map(table_key, preferred_keys):
+            table = get_table(table_key)
+            name_map = {}
+
+            if not table:
+                return table, name_map
+
+            try:
+                records = table.all()
+            except Exception as e:
+                print(f"Error cargando tabla {table_key} para lookup: {e}")
+                return table, name_map
+
+            for rec in records:
+                rec_id = rec.get("id")
+                fields = rec.get("fields", {})
+                name = _pick_display_name(fields, preferred_keys)
+                if rec_id and name:
+                    name_map[rec_id] = name
+
+            return table, name_map
+
+        def _resolve_record_id(table, name_map, rec_id, preferred_keys, label):
+            if not _is_airtable_id(rec_id):
+                return rec_id
+
+            cached = name_map.get(rec_id)
+            if cached:
+                return cached
+
+            if not table:
+                return rec_id
+
+            try:
+                record = table.get(rec_id)
+                name = _pick_display_name(record.get("fields", {}), preferred_keys)
+                if name:
+                    name_map[rec_id] = name
+                    return name
+            except Exception as e:
+                print(f"Lookup puntual falló en {label} para {rec_id}: {e}")
+
+            return rec_id
+
+        def _resolve_value(raw_value, table, name_map, preferred_keys, label):
+            if isinstance(raw_value, list):
+                parts = []
+                for item in raw_value:
+                    if isinstance(item, str):
+                        parts.append(
+                            _resolve_record_id(
+                                table, name_map, item, preferred_keys, label
+                            )
+                        )
+                    else:
+                        txt = _normalize_text(item)
+                        if txt:
+                            parts.append(txt)
+                return ", ".join([p for p in parts if p])
+
+            if isinstance(raw_value, str):
+                return _resolve_record_id(
+                    table, name_map, raw_value, preferred_keys, label
+                )
+
+            return _normalize_text(raw_value)
+
+        emp_name_keys = [
+            "NOMBRE Y APELLIDO",
+            "APELLIDO Y NOMBRE",
+            "NOMBRE COMPLETO",
+            "NOMBRE",
+            "Nombre",
+            "USUARIO",
+            "EMPLEADO",
+            "ATENDIDO X",
+        ]
+        ofic_name_keys = [
+            "NOMBRE_OFICINA_LIMPIO_WEB",
+            "OFICINAS",
+            "OFICINA",
+            "NOMBRE",
+            "Sede",
+            "SUCURSAL",
+            "AGENCIA",
+        ]
+        cia_name_keys = ["NOMBRE", "COMPAÑIA", "COMPANIA", "Compañía"]
+        prod_name_keys = ["NOMBRE PRODUCTO", "PRODUCTO", "Producto"]
+
+        table_emp, emp_map = _build_name_map("EMPLEADOS", emp_name_keys)
+        table_ofic, ofic_map = _build_name_map("OFICINAS", ofic_name_keys)
+        table_cia, cia_map = _build_name_map("COMPANIA", cia_name_keys)
+        table_prod, prod_map = _build_name_map("PRODUCTOS", prod_name_keys)
+
+        print(
+            f"DEBUG MAPS ROBUST: Emp={len(emp_map)}, Ofic={len(ofic_map)}, Cia={len(cia_map)}, Prod={len(prod_map)}"
+        )
+
+        def mapper(record_list):
+            for rec in record_list:
+                # 1. Oficinas
+                ofic_key = next(
+                    (
+                        k
+                        for k in [
+                            "OFICINAS",
+                            "OFICINA",
+                            "Sede",
+                            "Oficina",
+                            "OFICINAS (from CLIENTES)",
+                            "OFICINA (from CLIENTES)",
+                        ]
+                        if k in rec
+                    ),
+                    None,
+                )
+                if ofic_key:
+                    resolved_ofic = _resolve_value(
+                        rec.get(ofic_key),
+                        table_ofic,
+                        ofic_map,
+                        ofic_name_keys,
+                        "OFICINAS",
+                    )
+                    if resolved_ofic:
+                        rec["OFICINAS"] = resolved_ofic
+                        rec["OFICINA"] = resolved_ofic
+
+                # 2. Atendido X
+                aten_key = next(
+                    (
+                        k
+                        for k in [
+                            "ATENDIDO X",
+                            "ATENDIDO X (from CLIENTES)",
+                            "Empleado",
+                            "Atendido por",
+                            "ATENDIDO POR",
+                        ]
+                        if k in rec
+                    ),
+                    None,
+                )
+                if aten_key:
+                    resolved_emp = _resolve_value(
+                        rec.get(aten_key),
+                        table_emp,
+                        emp_map,
+                        emp_name_keys,
+                        "EMPLEADOS",
+                    )
+                    if resolved_emp:
+                        rec["ATENDIDO X"] = resolved_emp
+                        rec["ATENDIDO X (from CLIENTES)"] = resolved_emp
+
+                # 3. Compañía y Producto
+                cia_key = next(
+                    (
+                        k
+                        for k in ["COMPANIA LINK", "COMPAÑIA", "COMPANIA", "Compañía"]
+                        if k in rec
+                    ),
+                    None,
+                )
+                if cia_key:
+                    rec["COMPANIA_RESOLVED"] = _resolve_value(
+                        rec.get(cia_key), table_cia, cia_map, cia_name_keys, "COMPANIA"
+                    )
+
+                prod_key = next(
+                    (k for k in ["PRODUCTO LINK", "PRODUCTO", "Producto"] if k in rec),
+                    None,
+                )
+                if prod_key:
+                    rec["PRODUCTO_RESOLVED"] = _resolve_value(
+                        rec.get(prod_key),
+                        table_prod,
+                        prod_map,
+                        prod_name_keys,
+                        "PRODUCTOS",
+                    )
+
+        for cat in ["gestiones", "accidentes", "robo_oc", "robo_incendio", "polizas"]:
+            if cat in data:
+                mapper(data[cat])
+
     except Exception as e:
-        print(f"Error resolviendo nombres de empleados: {e}")
+        print(f"Error en resolución crítica de Lookups en backend/main.py: {e}")
+        import traceback
+
+        traceback.print_exc()
 
     return {"valid": True, "data": data}
 
@@ -1460,8 +1690,9 @@ async def create_siniestro(request: Request):
             if urls:
                 # Airtable requiere [{url: "..."}, ...] para campos adjuntos, NO strings simples
                 airtable_payload[columna] = [{"url": u} for u in urls]
-                print(f"   📎 URLs agregadas a {columna}: {len(urls)} imágenes → {[u[:40] for u in urls]}")
-
+                print(
+                    f"   📎 URLs agregadas a {columna}: {len(urls)} imágenes → {[u[:40] for u in urls]}"
+                )
 
         t_destino = get_table(tabla_destino)
         if not t_destino:
@@ -1479,17 +1710,19 @@ async def create_siniestro(request: Request):
             # Obtener el ID de gestión generado por Airtable (fórmula)
             # Primero intentar con el nombre exacto confirmado por el usuario: ID_UNICO_GESTION
             id_gestion = record.get("fields", {}).get("ID_UNICO_GESTION")
-            
+
             # Si Airtable no devolvió la fórmula inmediatamente al crear, lo buscamos explícitamente
             if not id_gestion:
                 try:
                     fetched_record = t_destino.get(record_id)
-                    id_gestion = fetched_record.get("fields", {}).get("ID_UNICO_GESTION")
+                    id_gestion = fetched_record.get("fields", {}).get(
+                        "ID_UNICO_GESTION"
+                    )
                 except:
                     pass
-            
-            id_gestion = id_gestion or record_id # Fallback
-            
+
+            id_gestion = id_gestion or record_id  # Fallback
+
             print(f"✅ Siniestro creado exitosamente: {record_id} ({id_gestion})")
 
             total_subidos = sum(len(urls) for urls in urls_imagenes.values())
@@ -1554,10 +1787,7 @@ async def get_faqs():
         # Traemos todas las FAQs y filtramos en memoria para evitar bugs del SDK con `formula=`
         all_records = table_faqs.all()
         # Filtrar localmente por campo VISIBLE = true y ordenar por ORDEN (default 999)
-        records = [
-            r for r in all_records 
-            if r.get("fields", {}).get("VISIBLE", False)
-        ]
+        records = [r for r in all_records if r.get("fields", {}).get("VISIBLE", False)]
         records.sort(key=lambda rec: rec.get("fields", {}).get("ORDEN", 999))
 
         faqs = []
@@ -1578,6 +1808,7 @@ async def get_faqs():
 
     except Exception as e:
         import traceback
+
         print(f"❌ Error obteniendo FAQs: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1690,9 +1921,11 @@ async def get_sucursales():
             fields = rec.get("fields", {})
             visible = fields.get("VISIBILIDAD", False)
             if visible:
+
                 def get_val(f_dict, key, default=""):
                     val = f_dict.get(key)
-                    if val is None: return default
+                    if val is None:
+                        return default
                     if isinstance(val, list):
                         return ", ".join(map(str, val)) if val else default
                     return str(val)
@@ -1705,14 +1938,16 @@ async def get_sucursales():
                     google_map_url = google_map_field
 
                 import re
+
                 def clean_name(name):
-                    if not name: return ""
-                    return re.sub(r'\s*\([^)]*\)\s*$', '', str(name)).strip()
+                    if not name:
+                        return ""
+                    return re.sub(r"\s*\([^)]*\)\s*$", "", str(name)).strip()
 
                 raw_name = get_val(fields, "NOMBRE_OFICINA_LIMPIO_WEB")
                 if not raw_name:
                     raw_name = fields.get("OFICINAS", "")
-                
+
                 final_name = clean_name(raw_name)
 
                 sucursales.append(
@@ -1740,3 +1975,72 @@ async def get_sucursales():
     except Exception as e:
         print(f"❌ Error obteniendo SUCURSALES: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ENDPOINTS ASESOR IA (NUEVOS)
+# ==============================================================================
+
+
+class ChatValidationRequest(BaseModel):
+    dni: str
+    value: str
+
+
+class AppointmentRequest(BaseModel):
+    dni: str
+    fecha: str
+    motivo: str
+    notas: Optional[str] = ""
+
+
+class EscalationRequest(BaseModel):
+    dni: str
+    es_cliente: bool
+    razon: str
+    gravedad: Optional[str] = "ALTA"
+
+
+@app.post("/chat/validate")
+def validate_chat_client(request: ChatValidationRequest):
+    t_clientes = get_table("CLIENTES")
+    dni_limpio = "".join(filter(str.isdigit, str(request.dni)))
+    records = t_clientes.all(formula=f'({{DNI}} & "") = "{dni_limpio}"', max_records=1)
+    if not records:
+        return {"status": "error", "message": "DNI no encontrado"}
+    cliente = records[0]["fields"]
+    return {"status": "success", "cliente": cliente}
+
+
+@app.get("/chat/polizas/{dni}")
+def get_chat_polizas(dni: str):
+    t_clientes = get_table("CLIENTES")
+    dni_limpio = "".join(filter(str.isdigit, str(dni)))
+    records = t_clientes.all(formula=f'({{DNI}} & "") = "{dni_limpio}"', max_records=1)
+    if not records:
+        return []
+    return records[0]["fields"].get("ETIQUETA_POLIZA Compilación (de POLIZAS)", [])
+
+
+@app.post("/chat/agendar")
+def schedule_appointment(request: AppointmentRequest):
+    t_asesoria = get_table("ASESORIA_ONLINE")
+    fields = {
+        "DNI": request.dni,
+        "FECHA": request.fecha,
+        "MOTIVO": request.motivo,
+        "NOTAS": request.notes,
+    }
+    return t_asesoria.create(fields)
+
+
+@app.post("/chat/escalar")
+def escalate_issue(request: EscalationRequest):
+    t_gestion = get_table("GESTION_GENERAL")
+    fields = {
+        "DNI": request.dni,
+        "TIPO GESTION": "ESCALACION IA",
+        "NOTAS": f"RAZON: {request.razon} | GRAVEDAD: {request.gravedad}",
+        "ESTADO": "NUEVO",
+    }
+    return t_gestion.create(fields)
