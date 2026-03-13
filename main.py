@@ -1785,7 +1785,6 @@ async def get_faqs():
             print("ERROR: table_faqs es None")
             raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
-        print(f"DEBUG: Consultando Airtable (Table ID: {table_faqs.table_id})")
         # Traemos todas las FAQs y filtramos en memoria para evitar bugs del SDK con `formula=`
         all_records = table_faqs.all()
         
