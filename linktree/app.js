@@ -500,7 +500,7 @@ document.getElementById('form-calificar')?.addEventListener('submit', (e) => {
     // Enviar a webhook n8n
     const submitBtn = e.target.querySelector('.btn-submit');
     const originalText = submitBtn.innerHTML;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+    submitBtn.innerHTML = '<div class="modern-spinner" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:8px; border-width:2px;"></div> Enviando...';
     submitBtn.disabled = true;
     
     fetchWithTimeout('https://web-production-2584d.up.railway.app/api/rating', {
@@ -829,7 +829,7 @@ function validarClienteSiniestro() {
     }
 
     if(btn) {
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verificando...';
+        btn.innerHTML = '<div class="modern-spinner" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:8px; border-width:2px;"></div> Verificando...';
         btn.disabled = true;
     }
 
@@ -1119,7 +1119,7 @@ async function handleSiniestroSubmit(e) {
     // UI Loading
     const originalBtnContent = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+    btn.innerHTML = '<div class="modern-spinner" style="width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:8px; border-width:2px;"></div> Enviando...';
 
     // Recolectar datos
     const formData = new FormData(form);
@@ -1361,6 +1361,9 @@ async function loadFAQs() {
                     ${iconoHtml} ${faq.pregunta}
                     <i class="fas fa-chevron-down"></i>
                 </button>
+                <div class="accordion-content">
+                    <p>${faq.respuesta}</p>
+                </div>
             </div>`;
         }).join('');
         

@@ -1,8 +1,8 @@
 const loginForm = document.getElementById('loginForm');
 const loginBtn = document.getElementById('loginBtn');
 const messageEl = document.getElementById('message');
-
-const API_URL = 'https://web-production-2584d.up.railway.app/api/portal/login-password'; 
+// Entorno Local de Alta Disponibilidad
+const API_URL = 'https://web-production-2584d.up.railway.app/api/portal/login-password';
 
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();

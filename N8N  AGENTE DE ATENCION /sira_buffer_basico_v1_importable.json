@@ -1,0 +1,146 @@
+{
+  "name": "SIRA - Buffer Basico v1 Importable",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sira-buffer-basico",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4ac87e7-9eb0-46ca-a1ce-25a3f4167a47",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "chatId",
+              "value": "={{ $json.chatId || $json.sessionId || 'global' }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message || $json.body || '' }}"
+            }
+          ],
+          "number": [
+            {
+              "name": "buffer_seconds",
+              "value": 5
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e6b5d925-3c04-4a74-b75f-ddfc0f63ab2f",
+      "name": "Normalizar Entrada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "fe510ee4-7d93-4dee-804e-ca1697b09b24",
+      "name": "Wait Buffer 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        740,
+        300
+      ],
+      "webhookId": "d75e4cad-0f55-4cf7-93f9-67fbc3c2d4df"
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = String($json.message || '').trim();\nreturn [{ json: { ...$json, message_compiled: msg, raw_messages: msg ? [msg] : [], message_count: msg ? 1 : 0, buffer_applied: true } }];"
+      },
+      "id": "1e335570-2fd3-4145-bd22-8be5942482bb",
+      "name": "Preparar Mensaje Compilado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, chatId: $json.chatId, message: $json.message, message_compiled: $json.message_compiled, raw_messages: $json.raw_messages, message_count: $json.message_count, buffer_applied: $json.buffer_applied } }}"
+      },
+      "id": "38cbf137-5168-405f-9b1d-d1bf5251efcc",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1220,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Wait Buffer 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Buffer 5s": {
+      "main": [
+        [
+          {
+            "node": "Preparar Mensaje Compilado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Mensaje Compilado": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "sira-buffer-basico-template"
+  }
+}

@@ -126,4 +126,22 @@ Utilizar siempre estos datos para verificar flujos de extremo a extremo:
 - ✅ **Sincronización Git:** Se sincronizaron las ramas `main` y `master`. Se forzó el push a `master` para asegurar que el despliegue automático de Railway tome la última versión.
 - ✅ **Submódulos:** Actualización y sincronización del submódulo `backend` con su repositorio remoto.
 
-*Última actualización: 2026-03-10 00:00*
+### [2026-03-11] Rediseño UI/UX y Optimización Portal Cliente
+- ✅ **UI Header:** Implementado diseño *Glassmorphism Premium* con fondo verde esmeralda translúcido y desenfoque (backdrop-filter).
+- ✅ **Layout Horizontal:** Reestructuración del perfil de usuario para mostrar **"CLIENTE + NOMBRE"** en una sola línea horizontal, optimizando espacio.
+- ✅ **Tipografía:** Unificación de tamaños de fuente a **1.3rem** para el nombre y rol, igualando la jerarquía del título principal.
+- ✅ **UX Botón Salir:** Reducción drástica del tamaño del botón "Salir" (pasa a ser un botón minimalista de 0.65rem de fuente) y corrección de su ancho para que no bloquee otros elementos.
+- ✅ **Performance:** Versionado de CSS (`portal.css?v=2`) para forzar la recarga de caché en navegadores de clientes.
+- ✅ **Protocolo Surge:** Establecido el modo de despliegue manual para evitar cuelgues de terminal en el agente (agente provee código, humano ejecuta).
+
+---
+
+## 🤖 Protocolos y Reglas del Agente
+- **Despliegues (Surge):** NUNCA ejecutar el comando `surge` mediante la terminal del agente para evitar bloqueos por interacciones secundarias. **SIEMPRE proveer el comando en formato blockcode** para que el humano lo ejecute manualmente en su propia terminal.
+
+*Última actualización: 2026-03-11 10:20*
+### 11 de Marzo - Linktree Premium UX/UI
+- Corregida funcionalidad de acordeón en FAQ (ahora muestra respuestas).
+- Rediseño completo del sistema de carga (Premium Loader) con CSS puro y Glassmorphism.
+- Universalización del loader en todos los modales, botones y rating del header.
+- Eliminación de dependencias de spinners FontAwesome genéricos para una carga más elegante.

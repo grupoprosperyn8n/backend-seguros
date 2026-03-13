@@ -86,15 +86,16 @@
   justify-content: space-between;
   align-items: center;
   padding: 14px 24px;
-  background: var(--glass-bg-strong);
+  background: linear-gradient(145deg, rgba(20, 50, 40, 0.75), rgba(10, 30, 20, 0.85)); /* Greenish Glassmorphism */
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
+  border: 1px solid rgba(48, 209, 88, 0.2); /* Accent matching Linktree account green */
+  border-bottom: 1px solid rgba(48, 209, 88, 0.4);
   border-radius: var(--r-lg);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
 }
 
-.dh-left { display: flex; align-items: center; gap: 14px; }
+.dh-left { display: flex; align-items: center; gap: 14px; margin-right: 20px; flex-shrink: 0; }
 .dh-icon {
   background: linear-gradient(135deg, var(--primary), var(--accent));
   padding: 10px;
@@ -112,31 +113,38 @@
 }
 .dh-titles p { margin: 0; font-size: 0.82rem; color: var(--white-50); }
 
-.dh-right { display: flex; align-items: center; gap: 16px; }
-.dh-user { display: flex; flex-direction: column; text-align: right; }
-.dh-user strong { font-size: 0.95rem; color: var(--white); font-weight: 700; }
+.dh-right { display: flex; align-items: center; gap: 16px; flex: 1; }
+.dh-user { display: flex; flex-direction: row; align-items: baseline; gap: 8px; text-align: right; white-space: nowrap; }
+.dh-user strong { font-size: 1.3rem; color: var(--white); font-weight: 700; }
 .dh-user span {
-  font-size: 0.74rem;
+  font-size: 1.3rem;
   color: var(--primary-light);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.02em;
+  font-weight: 700;
 }
 
 /* Botón Salir */
 .logout-btn {
   display: flex;
   align-items: center;
-  gap: 7px;
-  background: rgba(255,69,58,0.12);
-  color: #ff6961;
-  border: 1px solid rgba(255,69,58,0.3);
-  padding: 9px 16px;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--white-70);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 4px 8px;
   border-radius: var(--r-md);
   font-family: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.65rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s var(--ease-out);
+  width: max-content;
+  white-space: nowrap;
+}
+.logout-btn svg {
+  width: 12px;
+  height: 12px;
 }
 .logout-btn:hover { background: rgba(255,69,58,0.25); border-color: #ff453a; color: white; }
 
@@ -493,6 +501,7 @@ details[open] .analyzer-toggle-icon { transform: rotate(180deg); }
   align-items: center;
   padding-right: 16px;
   border-right: 1px solid var(--glass-border);
+  margin-right: auto;
 }
 .action-btn-small {
   display: flex;
@@ -742,4 +751,58 @@ details[open] .analyzer-toggle-icon { transform: rotate(180deg); }
   background: rgba(10,132,255,0.3);
   color: var(--white);
   transform: translateY(-1px);
+}
+
+/* Estilos para Modal de Gestión Fijo */
+.modal-fixed-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.modal-fixed-section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 15px;
+}
+.modal-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+}
+.modal-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+.mini-card {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 10px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mini-card small {
+    display: block;
+    font-size: 0.65rem;
+    color: var(--white-50);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.mini-card strong {
+    font-size: 0.9rem;
+    color: var(--primary-light);
+}
+.mini-badge-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+}
+.mini-badge-row span {
+    color: var(--white-50);
 }

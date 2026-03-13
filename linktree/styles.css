@@ -53,6 +53,47 @@
   --transition-base: 0.25s var(--ease-out);
 }
 
+/* =====================================================
+   PREMIUM LOADING SYSTEM
+   ===================================================== */
+.premium-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--white-90);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.modern-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top: 2px solid var(--primary);
+  border-radius: 50%;
+  animation: premium-spin 0.8s linear infinite;
+}
+
+@keyframes premium-spin {
+  to { transform: rotate(360deg); }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-load 2s infinite linear;
+}
+
+@keyframes shimmer-load {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
 /* Reset */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -93,6 +134,34 @@ body {
     rgba(10, 25, 41, 0.8) 50%, 
     rgba(10, 25, 41, 0.4) 100%
   );
+}
+
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  width: 100%;
+}
+
+.loading-spinner::before {
+  content: "";
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top: 3px solid var(--primary);
+  border-radius: 50%;
+  animation: premium-spin 0.8s linear infinite;
+}
+
+.loading-spinner span {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--white-70);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 /* =====================================================

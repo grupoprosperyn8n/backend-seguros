@@ -1778,39 +1778,75 @@ async def get_faqs():
     Retorna las preguntas frecuentes configuradas en Airtable.
     Solo retorna las que tienen VISIBLE = true, ordenadas por ORDEN.
     """
-    table_faqs = get_table("FAQ")
-
-    if not table_faqs:
-        raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
-
+    print("DEBUG: Iniciando /api/faqs")
     try:
+        table_faqs = get_table("FAQ")
+        if not table_faqs:
+            print("ERROR: table_faqs es None")
+            raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
+
+        print(f"DEBUG: Consultando Airtable (Table: {table_faqs.table_name})")
         # Traemos todas las FAQs y filtramos en memoria para evitar bugs del SDK con `formula=`
         all_records = table_faqs.all()
+        
+        if not isinstance(all_records, list):
+            print(f"ERROR: Airtable retornó un tipo inesperado: {type(all_records)}")
+            all_records = []
+
+        print(f"DEBUG: Se obtuvieron {len(all_records)} registros crudos")
+
         # Filtrar localmente por campo VISIBLE = true y ordenar por ORDEN (default 999)
-        records = [r for r in all_records if r.get("fields", {}).get("VISIBLE", False)]
-        records.sort(key=lambda rec: rec.get("fields", {}).get("ORDEN", 999))
+        # Usamos manejo defensivo por si VISIBLE es un dict o lista (lookup)
+        def is_visible(record):
+            val = record.get("fields", {}).get("VISIBLE")
+            if isinstance(val, list) and len(val) > 0:
+                return bool(val[0])
+            return bool(val)
+
+        def get_orden(record):
+            val = record.get("fields", {}).get("ORDEN", 999)
+            if isinstance(val, list) and len(val) > 0:
+                try: return int(val[0])
+                except: return 999
+            try: return int(val)
+            except: return 999
+
+        records = [r for r in all_records if is_visible(r)]
+        records.sort(key=get_orden)
 
         faqs = []
         for rec in records:
             fields = rec.get("fields", {})
+            
+            # Helper para limpiar campos de texto que podrían venir como listas
+            def clean_text(val, default=""):
+                if val is None: return default
+                if isinstance(val, list):
+                    return " ".join(map(str, val))
+                return str(val)
+
             faqs.append(
                 {
                     "id": rec["id"],
-                    "pregunta": fields.get("PREGUNTA", ""),
-                    "respuesta": fields.get("RESPUESTA", ""),
-                    "categoria": fields.get("CATEGORIA", ""),
-                    "orden": fields.get("ORDEN", 999),
-                    "icono": fields.get("ICONO", "fa-question-circle"),
+                    "pregunta": clean_text(fields.get("PREGUNTA")),
+                    "respuesta": clean_text(fields.get("RESPUESTA")),
+                    "categoria": clean_text(fields.get("CATEGORIA")),
+                    "orden": get_orden(rec),
+                    "icono": clean_text(fields.get("ICONO"), "fa-question-circle"),
                 }
             )
 
+        print(f"DEBUG: Retornando {len(faqs)} FAQs visibles")
         return {"status": "success", "faqs": faqs, "total": len(faqs)}
 
     except Exception as e:
         import traceback
-
-        print(f"❌ Error obteniendo FAQs: {e}")
+        print(f"❌ Error CRÍTICO obteniendo FAQs: {e}")
         traceback.print_exc()
+        # Si el error es el famoso 'dict' object has no attribute 'startswith', 
+        # imprimimos el contexto de las variables globales sospechosas
+        if "startswith" in str(e).lower():
+            print(f"DEBUG CONTEXT: API_KEY={type(API_KEY)}, BASE_ID={type(BASE_ID)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

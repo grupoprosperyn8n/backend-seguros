@@ -1,0 +1,13 @@
+{
+  "name": "sistema-seguros-agenticos",
+  "version": "1.0.0",
+  "description": "Ecosistema de Seguros Agénticos - Producción",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "live-server": "^1.2.2"
+  }
+}
