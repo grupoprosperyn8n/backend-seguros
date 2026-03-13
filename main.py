@@ -1785,7 +1785,7 @@ async def get_faqs():
             print("ERROR: table_faqs es None")
             raise HTTPException(status_code=500, detail="Tabla FAQ no configurada")
 
-        print(f"DEBUG: Consultando Airtable (Table: {table_faqs.table_name})")
+        print(f"DEBUG: Consultando Airtable (Table ID: {table_faqs.table_id})")
         # Traemos todas las FAQs y filtramos en memoria para evitar bugs del SDK con `formula=`
         all_records = table_faqs.all()
         
@@ -1845,7 +1845,7 @@ async def get_faqs():
         traceback.print_exc()
         # Si el error es el famoso 'dict' object has no attribute 'startswith', 
         # imprimimos el contexto de las variables globales sospechosas
-        if "startswith" in str(e).lower():
+        if "startswith" in str(e).lower() or "table_id" in str(e).lower():
             print(f"DEBUG CONTEXT: API_KEY={type(API_KEY)}, BASE_ID={type(BASE_ID)}")
         raise HTTPException(status_code=500, detail=str(e))
 
